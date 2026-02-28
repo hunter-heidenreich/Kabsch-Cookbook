@@ -13,6 +13,30 @@ dev = [
     "mlx>=0.31.0",
     "numpy>=2.2.6",
     "pytest>=9.0.2",
+    "ruff>=0.14.0",
     "tensorflow>=2.20.0",
     "torch>=2.10.0",
 ]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "RUF", # Ruff-specific rules
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
