@@ -5,3 +5,14 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
+
+[dependency-groups]
+dev = [
+    "jax>=0.6.2",
+    "jaxlib>=0.6.2",
+    "mlx>=0.31.0",
+    "numpy>=2.2.6",
+    "pytest>=9.0.2",
+    "tensorflow>=2.20.0",
+    "torch>=2.10.0",
+]
