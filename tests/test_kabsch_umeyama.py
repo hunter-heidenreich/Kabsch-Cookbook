@@ -242,13 +242,13 @@ class TestGradientVerification:
         Q_batch = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad_batch = adapter.get_grad(P_batch, Q_batch, func)
+        grad_batch = adapter.get_grad(P_batch, Q_batch, func, seed=None)
 
         grads_seq = []
         for i in range(5):
             P_seq = adapter.convert_in(P_np[i])
             Q_seq = adapter.convert_in(Q_np[i])
-            g = adapter.get_grad(P_seq, Q_seq, func)
+            g = adapter.get_grad(P_seq, Q_seq, func, seed=None)
             grads_seq.append(g)
         grad_seq_stacked = np.stack(grads_seq)
 

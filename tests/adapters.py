@@ -86,10 +86,21 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         P: torch.Tensor,
         Q: torch.Tensor,
         func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
+        seed: int | None = 42,
     ) -> np.ndarray:
         res = func(P, Q)
-        # Sum over all outputs (R, t, c, rmsd) to ensure full graph differentiability
-        loss = sum([tensor.sum() for tensor in res])
+        if seed is not None:
+            rng = np.random.RandomState(seed)
+            weights = [
+                torch.tensor(rng.normal(size=tensor.shape), dtype=torch.float64)
+                for tensor in res
+            ]
+            loss = sum(
+                (tensor * weight).sum()
+                for tensor, weight in zip(res, weights, strict=False)
+            )
+        else:
+            loss = sum([tensor.sum() for tensor in res])
         loss.backward()
         return P.grad.numpy()
 
@@ -121,12 +132,24 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
         P: jax.Array,
         Q: jax.Array,
         func: Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]],
+        seed: int | None = 42,
     ) -> np.ndarray:
         def loss_fn(P_inner):
             res = func(P_inner, Q)
-            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
-            # differentiability
-            return sum([jnp.sum(tensor) for tensor in res])
+            if seed is not None:
+                rng = np.random.RandomState(seed)
+                weights = [
+                    jnp.array(rng.normal(size=tensor.shape), dtype=jnp.float64)
+                    for tensor in res
+                ]
+                return sum(
+                    [
+                        jnp.sum(tensor * weight)
+                        for tensor, weight in zip(res, weights, strict=False)
+                    ]
+                )
+            else:
+                return sum([jnp.sum(tensor) for tensor in res])
 
         grad_fn = jax.grad(loss_fn)
         return np.array(grad_fn(P))
@@ -170,12 +193,24 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
             [tf.Tensor | tf.Variable, tf.Tensor | tf.Variable],
             tuple[tf.Tensor | tf.Variable, ...],
         ],
+        seed: int | None = 42,
     ) -> np.ndarray:
         with tf.GradientTape() as tape:
             res = func(P, Q)
-            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
-            # differentiability
-            loss = sum([tf.reduce_sum(tensor) for tensor in res])
+            if seed is not None:
+                rng = np.random.RandomState(seed)
+                weights = [
+                    tf.constant(rng.normal(size=tensor.shape), dtype=tf.float64)
+                    for tensor in res
+                ]
+                loss = sum(
+                    [
+                        tf.reduce_sum(tensor * weight)
+                        for tensor, weight in zip(res, weights, strict=False)
+                    ]
+                )
+            else:
+                loss = sum([tf.reduce_sum(tensor) for tensor in res])
         return tape.gradient(loss, P).numpy()
 
 
@@ -217,14 +252,26 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
         P: mx.array,
         Q: mx.array,
         func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
+        seed: int | None = 42,
     ) -> np.ndarray:
         mx.set_default_device(mx.cpu)
 
         def loss_fn(P_inner):
             res = func(P_inner, Q)
-            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
-            # differentiability
-            return sum([mx.sum(tensor) for tensor in res])
+            if seed is not None:
+                rng = np.random.RandomState(seed)
+                weights = [
+                    mx.array(rng.normal(size=tensor.shape), dtype=mx.float64)
+                    for tensor in res
+                ]
+                return sum(
+                    [
+                        mx.sum(tensor * weight)
+                        for tensor, weight in zip(res, weights, strict=False)
+                    ]
+                )
+            else:
+                return sum([mx.sum(tensor) for tensor in res])
 
         grad_fn = mx.grad(loss_fn)
         return np.array(grad_fn(P))
@@ -282,14 +329,26 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
         P: mx.array,
         Q: mx.array,
         func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
+        seed: int | None = 42,
     ) -> np.ndarray:
         mx.set_default_device(mx.gpu)
 
         def loss_fn(P_inner):
             res = func(P_inner, Q)
-            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
-            # differentiability
-            return sum([mx.sum(tensor) for tensor in res])
+            if seed is not None:
+                rng = np.random.RandomState(seed)
+                weights = [
+                    mx.array(rng.normal(size=tensor.shape), dtype=mx.float32)
+                    for tensor in res
+                ]
+                return sum(
+                    [
+                        mx.sum(tensor * weight)
+                        for tensor, weight in zip(res, weights, strict=False)
+                    ]
+                )
+            else:
+                return sum([mx.sum(tensor) for tensor in res])
 
         grad_fn = mx.grad(loss_fn)
         return np.array(grad_fn(P))
