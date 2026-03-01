@@ -8,6 +8,7 @@ def compute_numeric_grad(
     Q_np: np.ndarray,
     adapter: FrameworkAdapter,
     func,
+    seed: int = 42,
 ) -> np.ndarray:
     eps = adapter.eps
     flat_P = P_np.flatten()
@@ -21,14 +22,26 @@ def compute_numeric_grad(
         P_plus_fw = adapter.convert_in(P_plus)
         Q_fw = adapter.convert_in(Q_np)
         res_plus = func(P_plus_fw, Q_fw)
-        loss_plus = sum(np.sum(adapter.convert_out(tensor)) for tensor in res_plus)
+        
+        # Consistent random projection
+        rng_plus = np.random.RandomState(seed)
+        loss_plus = sum(
+            np.sum(adapter.convert_out(tensor) * rng_plus.normal(size=tensor.shape)) 
+            for tensor in res_plus
+        )
 
         flat_P[i] = val_orig - eps
         P_minus = flat_P.reshape(P_np.shape)
         P_minus_fw = adapter.convert_in(P_minus)
         Q_fw = adapter.convert_in(Q_np)
         res_minus = func(P_minus_fw, Q_fw)
-        loss_minus = sum(np.sum(adapter.convert_out(tensor)) for tensor in res_minus)
+        
+        # Consistent random projection
+        rng_minus = np.random.RandomState(seed)
+        loss_minus = sum(
+            np.sum(adapter.convert_out(tensor) * rng_minus.normal(size=tensor.shape)) 
+            for tensor in res_minus
+        )
 
         flat_P[i] = val_orig
         grad_num[i] = (loss_plus - loss_minus) / (2.0 * eps)

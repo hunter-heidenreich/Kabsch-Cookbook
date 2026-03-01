@@ -201,6 +201,28 @@ class TestDifferentiabilityTraps:
 
         assert np.isfinite(grad).all()
 
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_are_stable_when_points_are_identical(
+        self,
+        identity_points: np.ndarray,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """
+        Checks that gradients remain numerically stable when the input points
+        are identical (tests for RMSD gradient NaN trap).
+        """
+        P_np = identity_points
+        Q_np = np.copy(P_np)
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+
+        grad = adapter.get_grad(P, Q, func)
+
+        assert np.isfinite(grad).all()
+
 
 class TestGradientVerification:
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
