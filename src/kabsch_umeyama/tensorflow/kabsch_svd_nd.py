@@ -91,7 +91,7 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     det = tf.linalg.det(R)
     # If det < 0, reflect the last column of V
     # Create the reflection matrix
-    # dim = tf.shape(P)[-1]  # unused
+    dim = tf.shape(P)[-1]
 
     # Sign of determinant
     d_sign = tf.sign(det)
@@ -100,7 +100,13 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     # Process batched tensors differently if P is batched or unbatched
     # We construct a diagonal array
     ones = tf.ones_like(d_sign)
-    diag_vals = tf.stack([ones, ones, d_sign], axis=-1)
+    diag_vals = tf.concat(
+        [
+            tf.repeat(tf.expand_dims(ones, -1), dim - 1, axis=-1),
+            tf.expand_dims(d_sign, -1),
+        ],
+        axis=-1,
+    )
 
     I_reflect = tf.linalg.diag(diag_vals)
 
@@ -150,13 +156,19 @@ def kabsch_umeyama(
     # Reflection check
     det = tf.linalg.det(R)
 
-    # dim = tf.shape(P)[-1] # unused
+    dim = tf.shape(P)[-1]
 
     d_sign = tf.sign(det)
     d_sign = tf.where(d_sign == 0, tf.ones_like(d_sign), d_sign)
 
     ones = tf.ones_like(d_sign)
-    diag_vals = tf.stack([ones, ones, d_sign], axis=-1)
+    diag_vals = tf.concat(
+        [
+            tf.repeat(tf.expand_dims(ones, -1), dim - 1, axis=-1),
+            tf.expand_dims(d_sign, -1),
+        ],
+        axis=-1,
+    )
 
     I_reflect = tf.linalg.diag(diag_vals)
 

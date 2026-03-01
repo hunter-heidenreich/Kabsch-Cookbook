@@ -476,7 +476,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kabsch-umeyama"
+name = "kabsch-horn"
 version = "0.1.0"
 source = { virtual = "." }
 

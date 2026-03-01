@@ -20,6 +20,8 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
     assert P.shape == Q.shape, "Matrix dimensions must match"
 
+    _B, _N, D = P.shape
+
     # Compute centroids
     centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1x3
     centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1x3
@@ -45,7 +47,7 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     # Optimal rotation
     R = np.matmul(
         Vt.transpose(0, 2, 1)
-        * np.stack([np.ones_like(d_sign), np.ones_like(d_sign), d_sign], axis=-1)[
+        * np.stack([np.ones_like(d_sign)] * (D - 1) + [d_sign], axis=-1)[
             :, np.newaxis, :
         ],
         U.transpose(0, 2, 1),

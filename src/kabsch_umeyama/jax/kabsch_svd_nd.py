@@ -159,7 +159,7 @@ def kabsch(
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
 
-    _B, N, _D = P.shape
+    _B, N, D = P.shape
 
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
@@ -175,7 +175,7 @@ def kabsch(
     d_sign = jnp.sign(d + 1e-12)
 
     ones = jnp.ones_like(d_sign)
-    B_diag = jnp.stack([ones, ones, d_sign], axis=-1)
+    B_diag = jnp.stack([ones] * (D - 1) + [d_sign], axis=-1)
 
     R = jnp.matmul(V * B_diag[:, jnp.newaxis, :], jnp.swapaxes(U, 1, 2))
 

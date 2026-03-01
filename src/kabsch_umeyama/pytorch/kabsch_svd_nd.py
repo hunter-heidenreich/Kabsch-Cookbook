@@ -130,6 +130,8 @@ def kabsch(
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
 
+    _B, _N, D = P.shape
+
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)  # Bx1x3
     centroid_Q = torch.mean(Q, dim=1, keepdim=True)  # Bx1x3
@@ -154,7 +156,7 @@ def kabsch(
     # Sign safely mapping 0 determinant to 1.0 instead of 0.0
     d_sign = torch.sign(d + 1e-12)
 
-    B_diag = torch.stack([ones, ones, d_sign], dim=-1)  # Bx3
+    B_diag = torch.stack([ones] * (D - 1) + [d_sign], dim=-1)  # BxD
 
     # 3. Optimal Rotation: R = V * B_diag * U^T
     R = torch.matmul(V * B_diag.unsqueeze(1), U.transpose(1, 2))  # Bx3x3

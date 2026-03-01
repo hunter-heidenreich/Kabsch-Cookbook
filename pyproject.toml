@@ -1,7 +1,7 @@
 [project]
-name = "kabsch-umeyama"
+name = "kabsch-horn"
 version = "0.1.0"
-description = "A comprehensive, differentiable Kabsch-Umeyama optimal alignment cookbook across multiple ML frameworks with Safe SVD gradients."
+description = "A comprehensive differentiable Kabsch (SVD) and Horn (Quaternion) alignment cookbook for modern ML frameworks with safe backward-pass gradients."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
