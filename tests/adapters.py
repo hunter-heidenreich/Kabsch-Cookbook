@@ -19,6 +19,10 @@ T = TypeVar("T")
 
 class FrameworkAdapter(Generic[T]):
     @property
+    def eps(self) -> float:
+        return 1e-5
+
+    @property
     def atol(self) -> float:
         return 1e-5
 
@@ -84,8 +88,8 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
     ) -> np.ndarray:
         res = func(P, Q)
-        # Use the RMSD (always the last returned element) as the scalar loss
-        loss = res[-1].sum()
+        # Sum over all outputs (R, t, c, rmsd) to ensure full graph differentiability
+        loss = sum([tensor.sum() for tensor in res])
         loss.backward()
         return P.grad.numpy()
 
@@ -120,8 +124,9 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
     ) -> np.ndarray:
         def loss_fn(P_inner):
             res = func(P_inner, Q)
-            # Use the RMSD (always the last returned element) as the scalar loss
-            return jnp.sum(res[-1])
+            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
+            # differentiability
+            return sum([jnp.sum(tensor) for tensor in res])
 
         grad_fn = jax.grad(loss_fn)
         return np.array(grad_fn(P))
@@ -168,8 +173,9 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
     ) -> np.ndarray:
         with tf.GradientTape() as tape:
             res = func(P, Q)
-            # Use the RMSD (always the last returned element) as the scalar loss
-            loss = tf.reduce_sum(res[-1])
+            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
+            # differentiability
+            loss = sum([tf.reduce_sum(tensor) for tensor in res])
         return tape.gradient(loss, P).numpy()
 
 
@@ -216,8 +222,9 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
 
         def loss_fn(P_inner):
             res = func(P_inner, Q)
-            # Use the RMSD (always the last returned element) as the scalar loss
-            return mx.sum(res[-1])
+            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
+            # differentiability
+            return sum([mx.sum(tensor) for tensor in res])
 
         grad_fn = mx.grad(loss_fn)
         return np.array(grad_fn(P))
@@ -229,6 +236,10 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
     Typical usecase for MLX. Lower precision forces us to loosen atol/rtol
     for assertions.
     """
+
+    @property
+    def eps(self) -> float:
+        return 1e-3
 
     @property
     def atol(self) -> float:
@@ -276,8 +287,9 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
 
         def loss_fn(P_inner):
             res = func(P_inner, Q)
-            # Use the RMSD (always the last returned element) as the scalar loss
-            return mx.sum(res[-1])
+            # Sum over all outputs (R, t, c, rmsd) to ensure full graph
+            # differentiability
+            return sum([mx.sum(tensor) for tensor in res])
 
         grad_fn = mx.grad(loss_fn)
         return np.array(grad_fn(P))
