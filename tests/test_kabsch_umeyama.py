@@ -469,3 +469,117 @@ class TestGradientVerification:
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
+
+
+class TestErrorHandling:
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_raises_error_when_point_counts_differ(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """
+        Verifies that algorithms explicitly raise or propagate an error when
+        P and Q have mismatched point counts.
+        """
+        dim = 3
+        if not adapter.supports_dim(dim):
+            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
+
+        # 5 points vs 4 points
+        import numpy as np
+
+        P_np = np.random.rand(5, dim).astype(np.float64)
+        Q_np = np.random.rand(4, dim).astype(np.float64)
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+
+        with pytest.raises(adapter.mismatch_exception_type):
+            func(P, Q)
+
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_handles_underdetermined_systems_gracefully(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """
+        Verifies behavior when the system is underdetermined.
+        The algorithms should mathematically succeed and find a perfect fit
+        (RMSD approaches 0), even though the transform is not uniquely determined.
+        """
+        dim = 3
+        if not adapter.supports_dim(dim):
+            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
+
+        # 2 points in 3D (underdetermined)
+        import numpy as np
+
+        P_np = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
+        # Shift and rotate arbitrarily
+        R_true = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=np.float64)
+        t_true = np.array([2.0, 3.0, 4.0], dtype=np.float64)
+        Q_np = (P_np @ R_true.T) + t_true
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+
+        res = func(P, Q)
+
+        # The last return value is RMSD or a loss-like measure.
+        rmsd_idx = -1
+        rmsd = float(adapter.convert_out(res[rmsd_idx]))
+
+        # An underdetermined system can always be fit perfectly.
+        assert rmsd == pytest.approx(0.0, abs=1e-4)
+
+
+class TestDegeneracy:
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("collapse_target", ["P", "Q", "Both"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_origin_collapse_returns_identity_rotation(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        collapse_target: str,
+    ) -> None:
+        """
+        Verifies behavior when points collapse to the origin.
+        Scale should theoretically go zero (for umeyama).
+        """
+        dim = 3
+        if not adapter.supports_dim(dim):
+            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
+
+        import numpy as np
+
+        np.random.seed(42)
+        P_np = np.random.rand(5, dim).astype(np.float64)
+        Q_np = np.random.rand(5, dim).astype(np.float64)
+
+        if collapse_target in ["P", "Both"]:
+            P_np = np.zeros_like(P_np)
+        if collapse_target in ["Q", "Both"]:
+            Q_np = np.zeros_like(Q_np)
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+
+        res = func(P, Q)
+        R_res = adapter.convert_out(res[0])
+
+        # Rotation should be identity to remain well-conditioned
+        assert R_res == pytest.approx(np.eye(dim), abs=1e-5)
+
+        # Scale check for Umeyama
+        if algo == "umeyama":
+            c_res = float(adapter.convert_out(res[2]))
+            if collapse_target in ["P", "Q", "Both"]:
+                assert np.isfinite(c_res)

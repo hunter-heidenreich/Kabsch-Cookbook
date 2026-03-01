@@ -65,6 +65,11 @@ class FrameworkAdapter(Generic[T]):
     ) -> np.ndarray:
         raise NotImplementedError
 
+    @property
+    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
+        """The exception(s) raised when P and Q have different point counts."""
+        return Exception
+
 
 class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
     def convert_in(self, arr: np.ndarray) -> torch.Tensor:
@@ -115,6 +120,10 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
             loss = sum([tensor.sum() for tensor in res])
         loss.backward()
         return P.grad.numpy() if wrt == "P" else Q.grad.numpy()
+
+    @property
+    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
+        return AssertionError
 
 
 class JAXAdapter(FrameworkAdapter[jax.Array]):
@@ -167,6 +176,10 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
         arg_idx = 0 if wrt == "P" else 1
         grad_fn = jax.grad(loss_fn, argnums=arg_idx)
         return np.array(grad_fn(P, Q))
+
+    @property
+    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
+        return (TypeError, ValueError)
 
 
 class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
@@ -228,6 +241,10 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
             else:
                 loss = sum([tf.reduce_sum(tensor) for tensor in res])
         return tape.gradient(loss, P if wrt == "P" else Q).numpy()
+
+    @property
+    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
+        return tf.errors.InvalidArgumentError
 
 
 class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
@@ -297,6 +314,10 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
         arg_idx = 0 if wrt == "P" else 1
         grad_fn = mx.grad(loss_fn, argnums=arg_idx)
         return np.array(grad_fn(P, Q))
+
+    @property
+    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
+        return ValueError
 
 
 class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
@@ -380,6 +401,10 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
         arg_idx = 0 if wrt == "P" else 1
         grad_fn = mx.grad(loss_fn, argnums=arg_idx)
         return np.array(grad_fn(P, Q))
+
+    @property
+    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
+        return ValueError
 
 
 frameworks = [
