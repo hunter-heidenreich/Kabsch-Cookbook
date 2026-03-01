@@ -159,7 +159,15 @@ def kabsch(
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
 
-    _B, N, D = P.shape
+    orig_shape = P.shape
+    D = orig_shape[-1]
+    N = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+
+    P = P.reshape(-1, N, D)
+    Q = Q.reshape(-1, N, D)
+
+    _B = P.shape[0]
 
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
@@ -189,6 +197,10 @@ def kabsch(
 
     if is_single:
         return R[0], t[0], rmsd[0]
+
+    R = R.reshape(*batch_dims, D, D)
+    t = t.reshape(*batch_dims, D)
+    rmsd = rmsd.reshape(*batch_dims)
     return R, t, rmsd
 
 
@@ -200,7 +212,15 @@ def kabsch_umeyama(
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
 
-    _B, N, D = P.shape
+    orig_shape = P.shape
+    D = orig_shape[-1]
+    N = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+
+    P = P.reshape(-1, N, D)
+    Q = Q.reshape(-1, N, D)
+
+    _B = P.shape[0]
 
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
@@ -240,4 +260,9 @@ def kabsch_umeyama(
 
     if is_single:
         return R[0], t[0], c[0], rmsd[0]
+
+    R = R.reshape(*batch_dims, D, D)
+    t = t.reshape(*batch_dims, D)
+    c = c.reshape(*batch_dims)
+    rmsd = rmsd.reshape(*batch_dims)
     return R, t, c, rmsd

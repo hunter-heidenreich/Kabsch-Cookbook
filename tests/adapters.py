@@ -30,6 +30,10 @@ class FrameworkAdapter(Generic[T]):
     def rtol(self) -> float:
         return 1e-5
 
+    def supports_dim(self, dim: int) -> bool:
+        """Indicates whether this adapter supports N-D inputs."""
+        return True
+
     def convert_in(self, arr: np.ndarray) -> T:
         raise NotImplementedError
 
@@ -232,6 +236,10 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
     Apple Silicon GPUs don't support true float64, so MLX forces these ops onto the CPU.
     """
 
+    def supports_dim(self, dim: int) -> bool:
+        # MLX implementation hardcodes 3x3 determinant correction
+        return dim == 3
+
     def convert_in(self, arr: np.ndarray) -> mx.array:
         mx.set_default_device(mx.cpu)
         return mx.array(arr, dtype=mx.float64)
@@ -297,6 +305,10 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
     Typical usecase for MLX. Lower precision forces us to loosen atol/rtol
     for assertions.
     """
+
+    def supports_dim(self, dim: int) -> bool:
+        # MLX implementation hardcodes 3x3 determinant correction
+        return dim == 3
 
     @property
     def eps(self) -> float:

@@ -20,7 +20,14 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
     assert P.shape == Q.shape, "Matrix dimensions must match"
 
-    _B, _N, D = P.shape
+    orig_shape = P.shape
+    batch_dims = orig_shape[:-2]
+    N, D = orig_shape[-2:]
+
+    P = np.reshape(P, (-1, N, D))
+    Q = np.reshape(Q, (-1, N, D))
+
+    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1x3
@@ -64,7 +71,11 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
     if is_single:
         return R[0], t[0], rmsd[0]
-    return R, t, rmsd
+    return (
+        R.reshape(*batch_dims, D, D),
+        t.reshape(*batch_dims, D),
+        rmsd.reshape(*batch_dims),
+    )
 
 
 def kabsch_umeyama(
@@ -89,7 +100,14 @@ def kabsch_umeyama(
 
     assert P.shape == Q.shape, "Matrix dimensions must match"
 
-    _B, N, D = P.shape
+    orig_shape = P.shape
+    batch_dims = orig_shape[:-2]
+    N, D = orig_shape[-2:]
+
+    P = np.reshape(P, (-1, N, D))
+    Q = np.reshape(Q, (-1, N, D))
+
+    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
@@ -139,4 +157,9 @@ def kabsch_umeyama(
 
     if is_single:
         return R[0], t[0], c[0], rmsd[0]
-    return R, t, c, rmsd
+    return (
+        R.reshape(*batch_dims, D, D),
+        t.reshape(*batch_dims, D),
+        c.reshape(*batch_dims),
+        rmsd.reshape(*batch_dims),
+    )

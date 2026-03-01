@@ -130,7 +130,15 @@ def kabsch(
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
 
-    _B, _N, D = P.shape
+    orig_shape = P.shape
+    D = orig_shape[-1]
+    _N = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+
+    P = P.view(-1, _N, D)
+    Q = Q.view(-1, _N, D)
+
+    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)  # Bx1x3
@@ -176,6 +184,10 @@ def kabsch(
 
     if is_single:
         return R[0], t[0], rmsd[0]
+
+    R = R.view(*batch_dims, D, D)
+    t = t.view(*batch_dims, D)
+    rmsd = rmsd.view(*batch_dims)
     return R, t, rmsd
 
 
@@ -193,7 +205,15 @@ def kabsch_umeyama(
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
 
-    _B, N, D = P.shape
+    orig_shape = P.shape
+    D = orig_shape[-1]
+    N = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+
+    P = P.view(-1, N, D)
+    Q = Q.view(-1, N, D)
+
+    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)
@@ -240,4 +260,9 @@ def kabsch_umeyama(
 
     if is_single:
         return R[0], t[0], c[0], rmsd[0]
+
+    R = R.view(*batch_dims, D, D)
+    t = t.view(*batch_dims, D)
+    c = c.view(*batch_dims)
+    rmsd = rmsd.view(*batch_dims)
     return R, t, c, rmsd
