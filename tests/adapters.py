@@ -51,7 +51,14 @@ class FrameworkAdapter(Generic[T]):
     def is_nan(self, tensor: T) -> bool:
         raise NotImplementedError
 
-    def get_grad(self, P: T, Q: T, func: Callable[[T, T], tuple[T, ...]]) -> np.ndarray:
+    def get_grad(
+        self,
+        P: T,
+        Q: T,
+        func: Callable[[T, T], tuple[T, ...]],
+        seed: int | None = 42,
+        wrt: str = "P",
+    ) -> np.ndarray:
         raise NotImplementedError
 
 
@@ -87,6 +94,7 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         Q: torch.Tensor,
         func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
         seed: int | None = 42,
+        wrt: str = "P",
     ) -> np.ndarray:
         res = func(P, Q)
         if seed is not None:
@@ -102,7 +110,7 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         else:
             loss = sum([tensor.sum() for tensor in res])
         loss.backward()
-        return P.grad.numpy()
+        return P.grad.numpy() if wrt == "P" else Q.grad.numpy()
 
 
 class JAXAdapter(FrameworkAdapter[jax.Array]):
@@ -133,9 +141,10 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
         Q: jax.Array,
         func: Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]],
         seed: int | None = 42,
+        wrt: str = "P",
     ) -> np.ndarray:
-        def loss_fn(P_inner):
-            res = func(P_inner, Q)
+        def loss_fn(P_inner, Q_inner):
+            res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
                 weights = [
@@ -151,8 +160,9 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
             else:
                 return sum([jnp.sum(tensor) for tensor in res])
 
-        grad_fn = jax.grad(loss_fn)
-        return np.array(grad_fn(P))
+        arg_idx = 0 if wrt == "P" else 1
+        grad_fn = jax.grad(loss_fn, argnums=arg_idx)
+        return np.array(grad_fn(P, Q))
 
 
 class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
@@ -194,8 +204,10 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
             tuple[tf.Tensor | tf.Variable, ...],
         ],
         seed: int | None = 42,
+        wrt: str = "P",
     ) -> np.ndarray:
         with tf.GradientTape() as tape:
+            tape.watch([P, Q])
             res = func(P, Q)
             if seed is not None:
                 rng = np.random.RandomState(seed)
@@ -211,7 +223,7 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
                 )
             else:
                 loss = sum([tf.reduce_sum(tensor) for tensor in res])
-        return tape.gradient(loss, P).numpy()
+        return tape.gradient(loss, P if wrt == "P" else Q).numpy()
 
 
 class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
@@ -253,11 +265,12 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
         Q: mx.array,
         func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
         seed: int | None = 42,
+        wrt: str = "P",
     ) -> np.ndarray:
         mx.set_default_device(mx.cpu)
 
-        def loss_fn(P_inner):
-            res = func(P_inner, Q)
+        def loss_fn(P_inner, Q_inner):
+            res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
                 weights = [
@@ -273,8 +286,9 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
             else:
                 return sum([mx.sum(tensor) for tensor in res])
 
-        grad_fn = mx.grad(loss_fn)
-        return np.array(grad_fn(P))
+        arg_idx = 0 if wrt == "P" else 1
+        grad_fn = mx.grad(loss_fn, argnums=arg_idx)
+        return np.array(grad_fn(P, Q))
 
 
 class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
@@ -330,11 +344,12 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
         Q: mx.array,
         func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
         seed: int | None = 42,
+        wrt: str = "P",
     ) -> np.ndarray:
         mx.set_default_device(mx.gpu)
 
-        def loss_fn(P_inner):
-            res = func(P_inner, Q)
+        def loss_fn(P_inner, Q_inner):
+            res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
                 weights = [
@@ -350,8 +365,9 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
             else:
                 return sum([mx.sum(tensor) for tensor in res])
 
-        grad_fn = mx.grad(loss_fn)
-        return np.array(grad_fn(P))
+        arg_idx = 0 if wrt == "P" else 1
+        grad_fn = mx.grad(loss_fn, argnums=arg_idx)
+        return np.array(grad_fn(P, Q))
 
 
 frameworks = [

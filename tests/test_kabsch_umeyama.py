@@ -95,6 +95,7 @@ class TestForwardPassEquivalence:
 
 
 class TestDifferentiabilityTraps:
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_are_stable_when_points_are_coplanar(
@@ -102,6 +103,7 @@ class TestDifferentiabilityTraps:
         coplanar_points: tuple[np.ndarray, np.ndarray],
         adapter: FrameworkAdapter,
         algo: str,
+        wrt: str,
     ) -> None:
         """
         Checks that gradients remain numerically stable when the input points
@@ -112,10 +114,11 @@ class TestDifferentiabilityTraps:
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad = adapter.get_grad(P, Q, func)
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
 
         assert np.isfinite(grad).all()
 
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_are_stable_when_points_are_collinear(
@@ -123,6 +126,7 @@ class TestDifferentiabilityTraps:
         collinear_points: tuple[np.ndarray, np.ndarray],
         adapter: FrameworkAdapter,
         algo: str,
+        wrt: str,
     ) -> None:
         """
         Checks that gradients remain numerically stable when the input points
@@ -133,10 +137,11 @@ class TestDifferentiabilityTraps:
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad = adapter.get_grad(P, Q, func)
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
 
         assert np.isfinite(grad).all()
 
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_are_stable_when_points_form_perfect_cube(
@@ -144,6 +149,7 @@ class TestDifferentiabilityTraps:
         perfect_cube: tuple[np.ndarray, np.ndarray],
         adapter: FrameworkAdapter,
         algo: str,
+        wrt: str,
     ) -> None:
         """
         Checks that gradients remain stable when the input points form a perfect
@@ -154,7 +160,7 @@ class TestDifferentiabilityTraps:
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad = adapter.get_grad(P, Q, func)
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
 
         assert np.isfinite(grad).all()
 
@@ -180,6 +186,7 @@ class TestDifferentiabilityTraps:
 
         assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=1e-3)
 
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_are_stable_when_points_are_reflected(
@@ -187,6 +194,7 @@ class TestDifferentiabilityTraps:
         reflected_points: tuple[np.ndarray, np.ndarray],
         adapter: FrameworkAdapter,
         algo: str,
+        wrt: str,
     ) -> None:
         """
         Checks that gradients remain numerically stable when inputs require
@@ -197,10 +205,11 @@ class TestDifferentiabilityTraps:
         Q_grad_in = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad = adapter.get_grad(P_grad_in, Q_grad_in, func)
+        grad = adapter.get_grad(P_grad_in, Q_grad_in, func, wrt=wrt)
 
         assert np.isfinite(grad).all()
 
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_are_stable_when_points_are_identical(
@@ -208,6 +217,7 @@ class TestDifferentiabilityTraps:
         identity_points: np.ndarray,
         adapter: FrameworkAdapter,
         algo: str,
+        wrt: str,
     ) -> None:
         """
         Checks that gradients remain numerically stable when the input points
@@ -219,12 +229,13 @@ class TestDifferentiabilityTraps:
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad = adapter.get_grad(P, Q, func)
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
 
         assert np.isfinite(grad).all()
 
 
 class TestGradientVerification:
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_match_sequential_computation_when_batched(
@@ -232,6 +243,7 @@ class TestGradientVerification:
         batch_points: tuple[np.ndarray, np.ndarray],
         adapter: FrameworkAdapter,
         algo: str,
+        wrt: str,
     ) -> None:
         """
         Verifies that batched gradients match sequential computation of those
@@ -242,22 +254,23 @@ class TestGradientVerification:
         Q_batch = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad_batch = adapter.get_grad(P_batch, Q_batch, func, seed=None)
+        grad_batch = adapter.get_grad(P_batch, Q_batch, func, seed=None, wrt=wrt)
 
         grads_seq = []
         for i in range(5):
             P_seq = adapter.convert_in(P_np[i])
             Q_seq = adapter.convert_in(Q_np[i])
-            g = adapter.get_grad(P_seq, Q_seq, func, seed=None)
+            g = adapter.get_grad(P_seq, Q_seq, func, seed=None, wrt=wrt)
             grads_seq.append(g)
         grad_seq_stacked = np.stack(grads_seq)
 
         assert grad_batch == pytest.approx(grad_seq_stacked, rel=1e-3, abs=1e-3)
 
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_match_finite_differences_when_perturbed(
-        self, adapter: FrameworkAdapter, algo: str
+        self, adapter: FrameworkAdapter, algo: str, wrt: str
     ) -> None:
         """
         Compares analytically computed gradients against numerical finite
@@ -270,8 +283,8 @@ class TestGradientVerification:
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        grad_analytic = adapter.get_grad(P_fw, Q_fw, func)
-        grad_numeric = compute_numeric_grad(P_np, Q_np, adapter, func)
+        grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
+        grad_numeric = compute_numeric_grad(P_np, Q_np, adapter, func, wrt=wrt)
 
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
