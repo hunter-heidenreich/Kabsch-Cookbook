@@ -402,3 +402,102 @@ def test_batching_consistency(batch_points, fw_name, adapter):
         rtol=1e-3,
         err_msg=f"Batching consistency failed for {fw_name}",
     )
+
+
+def compute_numeric_grad(P_np, Q_np, adapter, func, eps=1e-5):
+    """
+    Computes the numerical gradient via central finite differences.
+    """
+    flat_P = P_np.flatten()
+    grad_num = np.zeros_like(flat_P)
+    
+    for i in range(len(flat_P)):
+        val_orig = flat_P[i]
+        
+        # f(x + eps)
+        flat_P[i] = val_orig + eps
+        P_plus = flat_P.reshape(P_np.shape)
+        P_plus_fw = adapter.convert_in(P_plus)
+        Q_fw = adapter.convert_in(Q_np)
+        res_plus = func(P_plus_fw, Q_fw)
+        loss_plus = np.sum(adapter.convert_out(res_plus[-1]))
+        
+        # f(x - eps)
+        flat_P[i] = val_orig - eps
+        P_minus = flat_P.reshape(P_np.shape)
+        P_minus_fw = adapter.convert_in(P_minus)
+        Q_fw = adapter.convert_in(Q_np)
+        res_minus = func(P_minus_fw, Q_fw)
+        loss_minus = np.sum(adapter.convert_out(res_minus[-1]))
+        
+        # Restore old value
+        flat_P[i] = val_orig
+        
+        # Central difference
+        grad_num[i] = (loss_plus - loss_minus) / (2.0 * eps)
+        
+    return grad_num.reshape(P_np.shape)
+
+
+@pytest.mark.parametrize("fw_name, adapter", frameworks)
+def test_finite_differences_kabsch(fw_name, adapter):
+    np.random.seed(42)
+    # Inputs cast to float64 for stability in finite differences
+    P_np = np.random.rand(10, 3).astype(np.float64)
+    Q_np = (P_np + np.random.rand(10, 3) * 0.1).astype(np.float64)
+
+    P_fw = adapter.convert_in(P_np)
+    Q_fw = adapter.convert_in(Q_np)
+
+    # Analytical gradient
+    grad_analytic = adapter.get_grad(P_fw, Q_fw, adapter.kabsch)
+
+    # Numerical gradient
+    grad_numeric = compute_numeric_grad(P_np, Q_np, adapter, adapter.kabsch)
+
+    # MLX uses float32 under the hood, so we relax tolerance significantly
+    atol, rtol = (1e-2, 1e-2) if fw_name == "MLX" else (1e-5, 1e-5)
+    
+    # TensorFlow gradients might need slightly looser tolerance depending on platform
+    if fw_name == "TensorFlow":
+        atol, rtol = 1e-4, 1e-4
+        
+    np.testing.assert_allclose(
+        grad_analytic, 
+        grad_numeric, 
+        atol=atol, 
+        rtol=rtol, 
+        err_msg=f"Finite differences failed for Kabsch on {fw_name}"
+    )
+
+
+@pytest.mark.parametrize("fw_name, adapter", frameworks)
+def test_finite_differences_umeyama(fw_name, adapter):
+    np.random.seed(42)
+    # Inputs cast to float64 for stability in finite differences
+    P_np = np.random.rand(10, 3).astype(np.float64)
+    Q_np = (P_np + np.random.rand(10, 3) * 0.1).astype(np.float64)
+
+    P_fw = adapter.convert_in(P_np)
+    Q_fw = adapter.convert_in(Q_np)
+
+    # Analytical gradient
+    grad_analytic = adapter.get_grad(P_fw, Q_fw, adapter.kabsch_umeyama)
+
+    # Numerical gradient
+    grad_numeric = compute_numeric_grad(P_np, Q_np, adapter, adapter.kabsch_umeyama)
+
+    # MLX may use float32 under the hood depending on the build, so we relax tolerance slightly
+    atol, rtol = (1e-2, 1e-2) if fw_name == "MLX" else (1e-5, 1e-5)
+    
+    # TensorFlow gradients might need slightly looser tolerance depending on platform
+    if fw_name == "TensorFlow":
+        atol, rtol = 1e-4, 1e-4
+        
+    np.testing.assert_allclose(
+        grad_analytic, 
+        grad_numeric, 
+        atol=atol, 
+        rtol=rtol, 
+        err_msg=f"Finite differences failed for Umeyama on {fw_name}"
+    )
