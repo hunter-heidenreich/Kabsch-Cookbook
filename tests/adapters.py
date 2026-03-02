@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -18,7 +18,7 @@ T = TypeVar("T")
 
 
 class FrameworkAdapter(Generic[T]):
-    _TOLERANCES = {
+    _TOLERANCES: ClassVar[dict[str, dict[str, float]]] = {
         "float16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
         "bfloat16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
         "float32": {"eps": 1e-3, "atol": 5e-2, "rtol": 5e-2},
@@ -27,7 +27,7 @@ class FrameworkAdapter(Generic[T]):
 
     def __init__(self, precision: str = "float64"):
         if precision not in self._TOLERANCES:
-             raise ValueError(f"Unknown precision: {precision}")
+            raise ValueError(f"Unknown precision: {precision}")
         self.precision = precision
 
     @property
@@ -84,7 +84,7 @@ class FrameworkAdapter(Generic[T]):
 
 
 class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
-    _DTYPE_MAP = {
+    _DTYPE_MAP: ClassVar[dict[str, torch.dtype]] = {
         "float16": torch.float16,
         "bfloat16": torch.bfloat16,
         "float32": torch.float32,
@@ -144,11 +144,11 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         else:
             loss = sum([tensor.sum() for tensor in res])
         loss.backward()
-        
+
         grad = P.grad if wrt == "P" else Q.grad
         if grad is not None and grad.dtype in (torch.bfloat16, torch.float16):
             grad = grad.float()
-            
+
         return grad.numpy()
 
     @property
@@ -157,7 +157,7 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
 
 
 class JAXAdapter(FrameworkAdapter[jax.Array]):
-    _DTYPE_MAP = {
+    _DTYPE_MAP: ClassVar[dict[str, jnp.dtype]] = {
         "float16": jnp.float16,
         "bfloat16": jnp.bfloat16,
         "float32": jnp.float32,
@@ -225,7 +225,7 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
 
 
 class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
-    _DTYPE_MAP = {
+    _DTYPE_MAP: ClassVar[dict[str, tf.DType]] = {
         "float16": tf.float16,
         "bfloat16": tf.bfloat16,
         "float32": tf.float32,
@@ -309,7 +309,7 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
     For float32, uses GPU acceleration.
     """
 
-    _DTYPE_MAP = {
+    _DTYPE_MAP: ClassVar[dict[str, mx.Dtype]] = {
         "float16": mx.float16,
         "bfloat16": mx.bfloat16,
         "float32": mx.float32,
@@ -335,10 +335,10 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
         if obj.dtype in (mx.bfloat16, mx.float16):
             obj = obj.astype(mx.float32)
         ret = np.array(obj)
-        # bfloat16 numpy arrays come out as mysterious void types sometimes to numpy linalg
+        # bfloat16 numpy arrays come out as mysterious void types sometimes
         # upcasting helps determinant test stay happy
         if self.precision in ("float16", "bfloat16") or ret.dtype in (np.float16,):
-             ret = ret.astype(np.float32)
+            ret = ret.astype(np.float32)
         return ret
 
     def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:

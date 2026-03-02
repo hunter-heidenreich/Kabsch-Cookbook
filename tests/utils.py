@@ -14,7 +14,7 @@ def compute_numeric_grad(
 ) -> np.ndarray:
     if weight_adapter is None:
         weight_adapter = adapter
-    
+
     eps = adapter.eps
 
     if wrt == "P":
@@ -33,7 +33,12 @@ def compute_numeric_grad(
 
             rng_plus = np.random.RandomState(seed)
             loss_plus = sum(
-                np.sum(adapter.convert_out(tensor) * weight_adapter.convert_out(weight_adapter.convert_in(rng_plus.normal(size=tensor.shape))))
+                np.sum(
+                    adapter.convert_out(tensor)
+                    * weight_adapter.convert_out(
+                        weight_adapter.convert_in(rng_plus.normal(size=tensor.shape))
+                    )
+                )
                 for tensor in res_plus
             )
 
@@ -46,7 +51,10 @@ def compute_numeric_grad(
             rng_minus = np.random.RandomState(seed)
             loss_minus = sum(
                 np.sum(
-                    adapter.convert_out(tensor) * weight_adapter.convert_out(weight_adapter.convert_in(rng_minus.normal(size=tensor.shape)))
+                    adapter.convert_out(tensor)
+                    * weight_adapter.convert_out(
+                        weight_adapter.convert_in(rng_minus.normal(size=tensor.shape))
+                    )
                 )
                 for tensor in res_minus
             )
@@ -71,7 +79,12 @@ def compute_numeric_grad(
 
             rng_plus = np.random.RandomState(seed)
             loss_plus = sum(
-                np.sum(adapter.convert_out(tensor) * weight_adapter.convert_out(weight_adapter.convert_in(rng_plus.normal(size=tensor.shape))))
+                np.sum(
+                    adapter.convert_out(tensor)
+                    * weight_adapter.convert_out(
+                        weight_adapter.convert_in(rng_plus.normal(size=tensor.shape))
+                    )
+                )
                 for tensor in res_plus
             )
 
@@ -84,7 +97,10 @@ def compute_numeric_grad(
             rng_minus = np.random.RandomState(seed)
             loss_minus = sum(
                 np.sum(
-                    adapter.convert_out(tensor) * weight_adapter.convert_out(weight_adapter.convert_in(rng_minus.normal(size=tensor.shape)))
+                    adapter.convert_out(tensor)
+                    * weight_adapter.convert_out(
+                        weight_adapter.convert_in(rng_minus.normal(size=tensor.shape))
+                    )
                 )
                 for tensor in res_minus
             )
