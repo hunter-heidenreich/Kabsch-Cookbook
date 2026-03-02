@@ -164,6 +164,40 @@ class TestForwardPassEquivalence:
                         s_np, rel=adapter.rtol, abs=adapter.atol
                     )
 
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_preserves_input_dtype(
+        self,
+        known_transform_points: tuple[
+            np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float
+        ],
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """
+        Verifies that the returned tensors maintain the exact same dtype as the inputs.
+        """
+        P_np, Q_kabsch_np, Q_umeyama_np, _, _, _ = known_transform_points
+        Q_expected = Q_umeyama_np if algo == "umeyama" else Q_kabsch_np
+
+        dim = P_np.shape[-1]
+        if not adapter.supports_dim(dim):
+            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_expected)
+        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+
+        res = func(P, Q)
+        expected_dtype = adapter._DTYPE_MAP[adapter.precision]
+
+        for i, tensor in enumerate(res):
+            if hasattr(tensor, "dtype"):
+                assert tensor.dtype == expected_dtype, (
+                    f"Failed dtype preservation on output index {i}. "
+                    f"Expected {expected_dtype}, got {tensor.dtype}"
+                )
+
 
 class TestDifferentiabilityTraps:
     @pytest.mark.parametrize("wrt", ["P", "Q"])
@@ -612,6 +646,41 @@ class TestGradientVerification:
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
 
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    def test_double_backward_is_computable_for_pytorch(
+        self,
+        algo: str,
+    ) -> None:
+        """
+        Validates PyTorch implementation supports double backward (meta-learning).
+        SVD double-backward frequently breaks due to mathematical singularities or
+        framework limitations.
+        """
+        import torch
+
+        from kabsch_umeyama import pytorch as kabsch_torch
+
+        P = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
+        Q = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
+
+        func = kabsch_torch.kabsch_umeyama if algo == "umeyama" else kabsch_torch.kabsch
+
+        res = func(P, Q)
+        loss = sum([r.sum() for r in res])
+
+        # First derivative
+        grad_P = torch.autograd.grad(loss, P, create_graph=True)[0]
+
+        # Second derivative check (sum of grad to condense to scalar)
+        loss2 = grad_P.sum()
+        try:
+            loss2.backward()
+        except RuntimeError as e:
+            pytest.fail(f"Double backward failed: {e}")
+
+        assert P.grad is not None
+        assert torch.isfinite(P.grad).all()
+
 
 class TestCatastrophicCancellation:
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
@@ -782,6 +851,59 @@ class TestErrorHandling:
 
         # An underdetermined system can always be fit perfectly.
         assert rmsd == pytest.approx(0.0, abs=adapter.atol)
+
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_propagates_nans_gracefully(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """
+        Verifies that if inputs contain NaNs, the output contains NaNs without
+        raising hard C-level aborts or failing to track mathematically.
+        """
+        if adapter.__class__.__name__ == "MLXAdapter":
+            pytest.skip(
+                "MLX linalg.svd currently throws a fatal hardware Abort on NaNs "
+                "which aborts pytest."
+            )
+
+        dim = 3
+        if not adapter.supports_dim(dim):
+            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
+
+        import numpy as np
+
+        np.random.seed(42)
+        P_np = np.random.rand(5, dim).astype(np.float64)
+        Q_np = np.random.rand(5, dim).astype(np.float64)
+
+        # Inject NaN
+        P_np[0, 0] = np.nan
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+
+        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+
+        try:
+            res = func(P, Q)
+        except Exception as e:
+            pytest.skip(
+                "Framework handles NaNs by raising an exception, "
+                f"which is acceptable: {e}"
+            )
+
+        for tensor in res:
+            if isinstance(tensor, float):
+                import math
+
+                assert math.isnan(tensor) or adapter.is_nan(tensor), (
+                    "Expected NaN to propagate"
+                )
+            else:
+                assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
 
 
 class TestDegeneracy:
