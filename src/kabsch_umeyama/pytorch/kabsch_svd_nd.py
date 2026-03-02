@@ -125,6 +125,11 @@ def kabsch(
     """
     assert P.shape == Q.shape, "Matrix dimensions must match"
 
+    orig_dtype = P.dtype
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        P = P.to(torch.float32)
+        Q = Q.to(torch.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
@@ -183,11 +188,22 @@ def kabsch(
     )
 
     if is_single:
-        return R[0], t[0], rmsd[0]
+        R, t, rmsd = R[0], t[0], rmsd[0]
+        if orig_dtype in (torch.float16, torch.bfloat16):
+            R = R.to(orig_dtype)
+            t = t.to(orig_dtype)
+            rmsd = rmsd.to(orig_dtype)
+        return R, t, rmsd
 
     R = R.view(*batch_dims, D, D)
     t = t.view(*batch_dims, D)
     rmsd = rmsd.view(*batch_dims)
+
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        R = R.to(orig_dtype)
+        t = t.to(orig_dtype)
+        rmsd = rmsd.to(orig_dtype)
+
     return R, t, rmsd
 
 
@@ -199,6 +215,11 @@ def kabsch_umeyama(
     Returns (R, t, c, rmsd).
     """
     assert P.shape == Q.shape, "Matrix dimensions must match"
+
+    orig_dtype = P.dtype
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        P = P.to(torch.float32)
+        Q = Q.to(torch.float32)
 
     is_single = P.ndim == 2
     if is_single:
@@ -259,10 +280,23 @@ def kabsch_umeyama(
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+        if orig_dtype in (torch.float16, torch.bfloat16):
+            R = R.to(orig_dtype)
+            t = t.to(orig_dtype)
+            c = c.to(orig_dtype)
+            rmsd = rmsd.to(orig_dtype)
+        return R, t, c, rmsd
 
     R = R.view(*batch_dims, D, D)
     t = t.view(*batch_dims, D)
     c = c.view(*batch_dims)
     rmsd = rmsd.view(*batch_dims)
+
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        R = R.to(orig_dtype)
+        t = t.to(orig_dtype)
+        c = c.to(orig_dtype)
+        rmsd = rmsd.to(orig_dtype)
+
     return R, t, c, rmsd

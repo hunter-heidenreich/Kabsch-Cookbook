@@ -71,6 +71,11 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     """
     Computes the optimal rotation and translation to align P and Q.
     """
+    orig_dtype = P.dtype
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        P = tf.cast(P, tf.float32)
+        Q = tf.cast(Q, tf.float32)
+
     # Centering
     centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
     centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
@@ -123,6 +128,11 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
     rmsd = tf.sqrt(tf.maximum(mse, 1e-12))
 
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        R = tf.cast(R, orig_dtype)
+        t = tf.cast(t, orig_dtype)
+        rmsd = tf.cast(rmsd, orig_dtype)
+
     return R, t, rmsd
 
 
@@ -132,6 +142,11 @@ def kabsch_umeyama(
     """
     Computes the optimal rotation, translation, and scale.
     """
+    orig_dtype = P.dtype
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        P = tf.cast(P, tf.float32)
+        Q = tf.cast(Q, tf.float32)
+
     # Centering
     centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
     centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
@@ -193,6 +208,12 @@ def kabsch_umeyama(
     diff = P_aligned - Q
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
     rmsd = tf.sqrt(tf.maximum(mse, 1e-12))
+
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        R = tf.cast(R, orig_dtype)
+        t = tf.cast(t, orig_dtype)
+        c = tf.cast(c, orig_dtype)
+        rmsd = tf.cast(rmsd, orig_dtype)
 
     return R, t, c, rmsd
 

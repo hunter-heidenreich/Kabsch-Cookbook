@@ -18,20 +18,29 @@ T = TypeVar("T")
 
 
 class FrameworkAdapter(Generic[T]):
+    _TOLERANCES = {
+        "float16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
+        "bfloat16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
+        "float32": {"eps": 1e-3, "atol": 5e-2, "rtol": 5e-2},
+        "float64": {"eps": 1e-5, "atol": 1e-5, "rtol": 1e-5},
+    }
+
     def __init__(self, precision: str = "float64"):
+        if precision not in self._TOLERANCES:
+             raise ValueError(f"Unknown precision: {precision}")
         self.precision = precision
 
     @property
     def eps(self) -> float:
-        return 1e-3 if self.precision == "float32" else 1e-5
+        return self._TOLERANCES[self.precision]["eps"]
 
     @property
     def atol(self) -> float:
-        return 5e-2 if self.precision == "float32" else 1e-5
+        return self._TOLERANCES[self.precision]["atol"]
 
     @property
     def rtol(self) -> float:
-        return 5e-2 if self.precision == "float32" else 1e-5
+        return self._TOLERANCES[self.precision]["rtol"]
 
     def supports_dim(self, dim: int) -> bool:
         """Indicates whether this adapter supports N-D inputs."""
@@ -75,12 +84,23 @@ class FrameworkAdapter(Generic[T]):
 
 
 class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
+    _DTYPE_MAP = {
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "float32": torch.float32,
+        "float64": torch.float64,
+    }
+
     def convert_in(self, arr: np.ndarray) -> torch.Tensor:
-        dtype = torch.float32 if self.precision == "float32" else torch.float64
+        dtype = self._DTYPE_MAP[self.precision]
         return torch.tensor(arr, dtype=dtype, requires_grad=True)
 
     def convert_out(self, obj: torch.Tensor) -> np.ndarray:
-        return obj.detach().numpy() if isinstance(obj, torch.Tensor) else obj
+        if isinstance(obj, torch.Tensor):
+            if obj.dtype in (torch.bfloat16, torch.float16):
+                obj = obj.float()
+            return obj.detach().numpy()
+        return obj
 
     def kabsch(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
         return kabsch_torch.kabsch(P, Q)
@@ -112,7 +132,7 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         res = func(P, Q)
         if seed is not None:
             rng = np.random.RandomState(seed)
-            dtype = torch.float32 if self.precision == "float32" else torch.float64
+            dtype = self._DTYPE_MAP[self.precision]
             weights = [
                 torch.tensor(rng.normal(size=tensor.shape), dtype=dtype)
                 for tensor in res
@@ -124,7 +144,12 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         else:
             loss = sum([tensor.sum() for tensor in res])
         loss.backward()
-        return P.grad.numpy() if wrt == "P" else Q.grad.numpy()
+        
+        grad = P.grad if wrt == "P" else Q.grad
+        if grad is not None and grad.dtype in (torch.bfloat16, torch.float16):
+            grad = grad.float()
+            
+        return grad.numpy()
 
     @property
     def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
@@ -132,12 +157,22 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
 
 
 class JAXAdapter(FrameworkAdapter[jax.Array]):
+    _DTYPE_MAP = {
+        "float16": jnp.float16,
+        "bfloat16": jnp.bfloat16,
+        "float32": jnp.float32,
+        "float64": jnp.float64,
+    }
+
     def convert_in(self, arr: np.ndarray) -> jax.Array:
-        dtype = jnp.float32 if self.precision == "float32" else jnp.float64
+        dtype = self._DTYPE_MAP[self.precision]
         return jnp.array(arr, dtype=dtype)
 
     def convert_out(self, obj: jax.Array) -> np.ndarray:
-        return np.array(obj)
+        ret = np.array(obj)
+        if ret.dtype in (np.float16,):
+            ret = ret.astype(np.float32)
+        return ret
 
     def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
         return kabsch_jax.kabsch(P, Q)
@@ -166,7 +201,7 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
             res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
-                dtype = jnp.float32 if self.precision == "float32" else jnp.float64
+                dtype = self._DTYPE_MAP[self.precision]
                 weights = [
                     jnp.array(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
@@ -190,12 +225,22 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
 
 
 class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
+    _DTYPE_MAP = {
+        "float16": tf.float16,
+        "bfloat16": tf.bfloat16,
+        "float32": tf.float32,
+        "float64": tf.float64,
+    }
+
     def convert_in(self, arr: np.ndarray) -> tf.Tensor | tf.Variable:
-        dtype = tf.float32 if self.precision == "float32" else tf.float64
+        dtype = self._DTYPE_MAP[self.precision]
         return tf.Variable(arr, dtype=dtype)
 
     def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
-        return obj.numpy()
+        ret = obj.numpy()
+        if ret.dtype in (np.float16,):
+            ret = ret.astype(np.float32)
+        return ret
 
     def kabsch(
         self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
@@ -236,7 +281,7 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
             res = func(P, Q)
             if seed is not None:
                 rng = np.random.RandomState(seed)
-                dtype = tf.float32 if self.precision == "float32" else tf.float64
+                dtype = self._DTYPE_MAP[self.precision]
                 weights = [
                     tf.constant(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
@@ -264,6 +309,13 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
     For float32, uses GPU acceleration.
     """
 
+    _DTYPE_MAP = {
+        "float16": mx.float16,
+        "bfloat16": mx.bfloat16,
+        "float32": mx.float32,
+        "float64": mx.float64,
+    }
+
     def _set_device(self) -> None:
         if self.precision == "float64":
             mx.set_default_device(mx.cpu)
@@ -276,11 +328,18 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
 
     def convert_in(self, arr: np.ndarray) -> mx.array:
         self._set_device()
-        dtype = mx.float64 if self.precision == "float64" else mx.float32
+        dtype = self._DTYPE_MAP[self.precision]
         return mx.array(arr, dtype=dtype)
 
     def convert_out(self, obj: mx.array) -> np.ndarray:
-        return np.array(obj)
+        if obj.dtype in (mx.bfloat16, mx.float16):
+            obj = obj.astype(mx.float32)
+        ret = np.array(obj)
+        # bfloat16 numpy arrays come out as mysterious void types sometimes to numpy linalg
+        # upcasting helps determinant test stay happy
+        if self.precision in ("float16", "bfloat16") or ret.dtype in (np.float16,):
+             ret = ret.astype(np.float32)
+        return ret
 
     def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
         self._set_device()
@@ -316,7 +375,7 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
             res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
-                dtype = mx.float64 if self.precision == "float64" else mx.float32
+                dtype = self._DTYPE_MAP[self.precision]
                 weights = [
                     mx.array(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
@@ -332,7 +391,10 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
 
         arg_idx = 0 if wrt == "P" else 1
         grad_fn = mx.grad(loss_fn, argnums=arg_idx)
-        return np.array(grad_fn(P, Q))
+        grad = grad_fn(P, Q)
+        if grad.dtype in (mx.bfloat16, mx.float16):
+            grad = grad.astype(mx.float32)
+        return np.array(grad)
 
     @property
     def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
@@ -340,12 +402,20 @@ class MLXAdapter(FrameworkAdapter[mx.array]):
 
 
 frameworks = [
+    pytest.param(PyTorchAdapter("bfloat16"), id="PyTorch-BFloat16"),
+    pytest.param(PyTorchAdapter("float16"), id="PyTorch-Float16"),
     pytest.param(PyTorchAdapter("float32"), id="PyTorch-Float32"),
     pytest.param(PyTorchAdapter("float64"), id="PyTorch-Float64"),
+    pytest.param(JAXAdapter("bfloat16"), id="JAX-BFloat16"),
+    pytest.param(JAXAdapter("float16"), id="JAX-Float16"),
     pytest.param(JAXAdapter("float32"), id="JAX-Float32"),
     pytest.param(JAXAdapter("float64"), id="JAX-Float64"),
+    pytest.param(TFAdapter("bfloat16"), id="TensorFlow-BFloat16"),
+    pytest.param(TFAdapter("float16"), id="TensorFlow-Float16"),
     pytest.param(TFAdapter("float32"), id="TensorFlow-Float32"),
     pytest.param(TFAdapter("float64"), id="TensorFlow-Float64"),
+    pytest.param(MLXAdapter("bfloat16"), id="MLX-BFloat16-GPU"),
+    pytest.param(MLXAdapter("float16"), id="MLX-Float16-GPU"),
     pytest.param(MLXAdapter("float64"), id="MLX-Float64-CPU"),
     pytest.param(MLXAdapter("float32"), id="MLX-Float32-GPU"),
 ]

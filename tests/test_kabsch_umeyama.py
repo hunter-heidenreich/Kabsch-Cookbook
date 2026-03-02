@@ -372,6 +372,9 @@ class TestDifferentiabilityTraps:
         if not adapter.supports_dim(dim):
             pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
+        if algo == "umeyama" and getattr(adapter, "precision", "float64") in ("float16", "bfloat16"):
+             pytest.skip("Umeyama requires division by variance, which overflows float16 on origin collapse.")
+
         np.random.seed(42)
         P_np = np.random.rand(5, dim).astype(np.float64)
         Q_np = np.random.rand(5, dim).astype(np.float64)
@@ -440,7 +443,7 @@ class TestDifferentiabilityTraps:
             assert np.isfinite(grad).all()
             return
 
-        alpha = 1e-4
+        alpha = max(1e-4, adapter.eps)
         if wrt == "P":
             P_new_np = P_np - alpha * grad
             P_new = adapter.convert_in(P_new_np)
@@ -552,9 +555,11 @@ class TestGradientVerification:
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        ref_adapter = type(adapter)("float64")
+        func_ref = ref_adapter.kabsch_umeyama if algo == "umeyama" else ref_adapter.kabsch
 
         grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
-        grad_numeric = compute_numeric_grad(P_np, Q_np, adapter, func, wrt=wrt)
+        grad_numeric = compute_numeric_grad(P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter)
 
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
@@ -583,9 +588,11 @@ class TestGradientVerification:
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        ref_adapter = type(adapter)("float64")
+        func_ref = ref_adapter.kabsch_umeyama if algo == "umeyama" else ref_adapter.kabsch
 
         grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
-        grad_numeric = compute_numeric_grad(P_np, Q_np, adapter, func, wrt=wrt)
+        grad_numeric = compute_numeric_grad(P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter)
 
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
@@ -609,9 +616,9 @@ class TestCatastrophicCancellation:
         if not adapter.supports_dim(dim):
             pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
-        if getattr(adapter, "precision", "float64") == "float32":
+        if getattr(adapter, "precision", "float64") != "float64":
             pytest.skip(
-                "Float32 inherently loses structure with extreme "
+                "Lower precisions inherently lose structure with extreme "
                 "translations due to mantissa limits."
             )
 
@@ -661,9 +668,9 @@ class TestCatastrophicCancellation:
         if not adapter.supports_dim(dim):
             pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
-        if getattr(adapter, "precision", "float64") == "float32":
+        if getattr(adapter, "precision", "float64") != "float64":
             pytest.skip(
-                "Float32 inherently loses structure with extreme "
+                "Lower precisions inherently lose structure with extreme "
                 "translations due to mantissa limits."
             )
 

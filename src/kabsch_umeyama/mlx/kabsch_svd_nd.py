@@ -70,6 +70,11 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Computes the optimal rotation and translation to align P and Q.
     Returns (R, t, rmsd)
     """
+    orig_dtype = P.dtype
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        P = P.astype(mx.float32)
+        Q = Q.astype(mx.float32)
+
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
     centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
@@ -129,6 +134,11 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
     rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
 
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+
     return R, t, rmsd
 
 
@@ -139,6 +149,11 @@ def kabsch_umeyama(
     Computes the optimal rotation, translation, and scale.
     Returns (R, t, c, rmsd)
     """
+    orig_dtype = P.dtype
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        P = P.astype(mx.float32)
+        Q = Q.astype(mx.float32)
+
     N = mx.array(P.shape[-2], dtype=P.dtype)
 
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
@@ -201,5 +216,11 @@ def kabsch_umeyama(
     diff = P_aligned - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
     rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        c = c.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
 
     return R, t, c, rmsd

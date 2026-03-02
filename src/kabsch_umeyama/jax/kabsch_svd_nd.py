@@ -154,6 +154,11 @@ safe_svd.defvjp(_fwd, _bwd)
 def kabsch(
     P: jnp.ndarray, Q: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    orig_dtype = P.dtype
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        P = P.astype(jnp.float32)
+        Q = Q.astype(jnp.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[jnp.newaxis, ...]
@@ -196,17 +201,33 @@ def kabsch(
     rmsd = jnp.sqrt(jnp.clip(diff_sq, min=1e-12, max=None))
 
     if is_single:
-        return R[0], t[0], rmsd[0]
+        R, t, rmsd = R[0], t[0], rmsd[0]
+        if orig_dtype in (jnp.float16, jnp.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+        return R, t, rmsd
 
     R = R.reshape(*batch_dims, D, D)
     t = t.reshape(*batch_dims, D)
     rmsd = rmsd.reshape(*batch_dims)
+
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+
     return R, t, rmsd
 
 
 def kabsch_umeyama(
     P: jnp.ndarray, Q: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    orig_dtype = P.dtype
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        P = P.astype(jnp.float32)
+        Q = Q.astype(jnp.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[jnp.newaxis, ...]
@@ -259,10 +280,24 @@ def kabsch_umeyama(
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+        if orig_dtype in (jnp.float16, jnp.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            c = c.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+
+        return R, t, c, rmsd
 
     R = R.reshape(*batch_dims, D, D)
     t = t.reshape(*batch_dims, D)
     c = c.reshape(*batch_dims)
     rmsd = rmsd.reshape(*batch_dims)
+
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        c = c.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+
     return R, t, c, rmsd
