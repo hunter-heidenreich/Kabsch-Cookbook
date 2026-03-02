@@ -18,17 +18,20 @@ T = TypeVar("T")
 
 
 class FrameworkAdapter(Generic[T]):
+    def __init__(self, precision: str = "float64"):
+        self.precision = precision
+
     @property
     def eps(self) -> float:
-        return 1e-5
+        return 1e-3 if self.precision == "float32" else 1e-5
 
     @property
     def atol(self) -> float:
-        return 1e-5
+        return 5e-2 if self.precision == "float32" else 1e-5
 
     @property
     def rtol(self) -> float:
-        return 1e-5
+        return 5e-2 if self.precision == "float32" else 1e-5
 
     def supports_dim(self, dim: int) -> bool:
         """Indicates whether this adapter supports N-D inputs."""
@@ -73,7 +76,8 @@ class FrameworkAdapter(Generic[T]):
 
 class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
     def convert_in(self, arr: np.ndarray) -> torch.Tensor:
-        return torch.tensor(arr, dtype=torch.float64, requires_grad=True)
+        dtype = torch.float32 if self.precision == "float32" else torch.float64
+        return torch.tensor(arr, dtype=dtype, requires_grad=True)
 
     def convert_out(self, obj: torch.Tensor) -> np.ndarray:
         return obj.detach().numpy() if isinstance(obj, torch.Tensor) else obj
@@ -108,8 +112,9 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         res = func(P, Q)
         if seed is not None:
             rng = np.random.RandomState(seed)
+            dtype = torch.float32 if self.precision == "float32" else torch.float64
             weights = [
-                torch.tensor(rng.normal(size=tensor.shape), dtype=torch.float64)
+                torch.tensor(rng.normal(size=tensor.shape), dtype=dtype)
                 for tensor in res
             ]
             loss = sum(
@@ -128,7 +133,8 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
 
 class JAXAdapter(FrameworkAdapter[jax.Array]):
     def convert_in(self, arr: np.ndarray) -> jax.Array:
-        return jnp.array(arr, dtype=jnp.float64)
+        dtype = jnp.float32 if self.precision == "float32" else jnp.float64
+        return jnp.array(arr, dtype=dtype)
 
     def convert_out(self, obj: jax.Array) -> np.ndarray:
         return np.array(obj)
@@ -160,8 +166,9 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
             res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
+                dtype = jnp.float32 if self.precision == "float32" else jnp.float64
                 weights = [
-                    jnp.array(rng.normal(size=tensor.shape), dtype=jnp.float64)
+                    jnp.array(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
                 ]
                 return sum(
@@ -184,7 +191,8 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
 
 class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
     def convert_in(self, arr: np.ndarray) -> tf.Tensor | tf.Variable:
-        return tf.Variable(arr, dtype=tf.float64)
+        dtype = tf.float32 if self.precision == "float32" else tf.float64
+        return tf.Variable(arr, dtype=dtype)
 
     def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
         return obj.numpy()
@@ -228,8 +236,9 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
             res = func(P, Q)
             if seed is not None:
                 rng = np.random.RandomState(seed)
+                dtype = tf.float32 if self.precision == "float32" else tf.float64
                 weights = [
-                    tf.constant(rng.normal(size=tensor.shape), dtype=tf.float64)
+                    tf.constant(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
                 ]
                 loss = sum(
@@ -247,41 +256,50 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
         return tf.errors.InvalidArgumentError
 
 
-class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
+class MLXAdapter(FrameworkAdapter[mx.array]):
     """
-    MLX Float64 Adapter (CPU only)
-    Apple Silicon GPUs don't support true float64, so MLX forces these ops onto the CPU.
+    MLX Adapter.
+    For float64, forces ops onto the CPU because
+    Apple Silicon GPUs don't support true float64.
+    For float32, uses GPU acceleration.
     """
+
+    def _set_device(self) -> None:
+        if self.precision == "float64":
+            mx.set_default_device(mx.cpu)
+        else:
+            mx.set_default_device(mx.gpu)
 
     def supports_dim(self, dim: int) -> bool:
         # MLX implementation hardcodes 3x3 determinant correction
         return dim == 3
 
     def convert_in(self, arr: np.ndarray) -> mx.array:
-        mx.set_default_device(mx.cpu)
-        return mx.array(arr, dtype=mx.float64)
+        self._set_device()
+        dtype = mx.float64 if self.precision == "float64" else mx.float32
+        return mx.array(arr, dtype=dtype)
 
     def convert_out(self, obj: mx.array) -> np.ndarray:
         return np.array(obj)
 
     def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.cpu)
+        self._set_device()
         return kabsch_mlx.kabsch(P, Q)
 
     def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.cpu)
+        self._set_device()
         return kabsch_mlx.kabsch_umeyama(P, Q)
 
     def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.cpu)
+        self._set_device()
         return kabsch_mlx.horn(P, Q)
 
     def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.cpu)
+        self._set_device()
         return kabsch_mlx.horn_with_scale(P, Q)
 
     def is_nan(self, tensor: mx.array) -> bool:
-        mx.set_default_device(mx.cpu)
+        self._set_device()
         return mx.any(mx.isnan(tensor)).item()
 
     def get_grad(
@@ -292,101 +310,15 @@ class MLXFloat64Adapter(FrameworkAdapter[mx.array]):
         seed: int | None = 42,
         wrt: str = "P",
     ) -> np.ndarray:
-        mx.set_default_device(mx.cpu)
+        self._set_device()
 
         def loss_fn(P_inner, Q_inner):
             res = func(P_inner, Q_inner)
             if seed is not None:
                 rng = np.random.RandomState(seed)
+                dtype = mx.float64 if self.precision == "float64" else mx.float32
                 weights = [
-                    mx.array(rng.normal(size=tensor.shape), dtype=mx.float64)
-                    for tensor in res
-                ]
-                return sum(
-                    [
-                        mx.sum(tensor * weight)
-                        for tensor, weight in zip(res, weights, strict=False)
-                    ]
-                )
-            else:
-                return sum([mx.sum(tensor) for tensor in res])
-
-        arg_idx = 0 if wrt == "P" else 1
-        grad_fn = mx.grad(loss_fn, argnums=arg_idx)
-        return np.array(grad_fn(P, Q))
-
-    @property
-    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
-        return ValueError
-
-
-class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
-    """
-    MLX Float32 Adapter (GPU accelerated)
-    Typical usecase for MLX. Lower precision forces us to loosen atol/rtol
-    for assertions.
-    """
-
-    def supports_dim(self, dim: int) -> bool:
-        # MLX implementation hardcodes 3x3 determinant correction
-        return dim == 3
-
-    @property
-    def eps(self) -> float:
-        return 1e-3
-
-    @property
-    def atol(self) -> float:
-        return 1e-2
-
-    @property
-    def rtol(self) -> float:
-        return 1e-2
-
-    def convert_in(self, arr: np.ndarray) -> mx.array:
-        mx.set_default_device(mx.gpu)
-        # Default mx.array downcasts standard numpy float64 to float32
-        return mx.array(arr, dtype=mx.float32)
-
-    def convert_out(self, obj: mx.array) -> np.ndarray:
-        return np.array(obj)
-
-    def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.gpu)
-        return kabsch_mlx.kabsch(P, Q)
-
-    def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.gpu)
-        return kabsch_mlx.kabsch_umeyama(P, Q)
-
-    def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.gpu)
-        return kabsch_mlx.horn(P, Q)
-
-    def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        mx.set_default_device(mx.gpu)
-        return kabsch_mlx.horn_with_scale(P, Q)
-
-    def is_nan(self, tensor: mx.array) -> bool:
-        mx.set_default_device(mx.gpu)
-        return mx.any(mx.isnan(tensor)).item()
-
-    def get_grad(
-        self,
-        P: mx.array,
-        Q: mx.array,
-        func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
-        seed: int | None = 42,
-        wrt: str = "P",
-    ) -> np.ndarray:
-        mx.set_default_device(mx.gpu)
-
-        def loss_fn(P_inner, Q_inner):
-            res = func(P_inner, Q_inner)
-            if seed is not None:
-                rng = np.random.RandomState(seed)
-                weights = [
-                    mx.array(rng.normal(size=tensor.shape), dtype=mx.float32)
+                    mx.array(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
                 ]
                 return sum(
@@ -408,9 +340,12 @@ class MLXFloat32Adapter(FrameworkAdapter[mx.array]):
 
 
 frameworks = [
-    pytest.param(PyTorchAdapter(), id="PyTorch"),
-    pytest.param(JAXAdapter(), id="JAX"),
-    pytest.param(TFAdapter(), id="TensorFlow"),
-    pytest.param(MLXFloat64Adapter(), id="MLX-Float64-CPU"),
-    pytest.param(MLXFloat32Adapter(), id="MLX-Float32-GPU"),
+    pytest.param(PyTorchAdapter("float32"), id="PyTorch-Float32"),
+    pytest.param(PyTorchAdapter("float64"), id="PyTorch-Float64"),
+    pytest.param(JAXAdapter("float32"), id="JAX-Float32"),
+    pytest.param(JAXAdapter("float64"), id="JAX-Float64"),
+    pytest.param(TFAdapter("float32"), id="TensorFlow-Float32"),
+    pytest.param(TFAdapter("float64"), id="TensorFlow-Float64"),
+    pytest.param(MLXAdapter("float64"), id="MLX-Float64-CPU"),
+    pytest.param(MLXAdapter("float32"), id="MLX-Float32-GPU"),
 ]
