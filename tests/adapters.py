@@ -64,6 +64,18 @@ class FrameworkAdapter(Generic[T]):
     def horn_with_scale(self, P: T, Q: T) -> tuple[T, ...]:
         raise NotImplementedError
 
+    def get_transform_func(self, algo: str) -> Callable[[T, T], tuple[T, ...]]:
+        """Returns the corresponding transformation function for the given algorithm."""
+        if algo == "kabsch":
+            return self.kabsch
+        if algo == "umeyama":
+            return self.kabsch_umeyama
+        if algo == "horn":
+            return self.horn
+        if algo == "horn_with_scale":
+            return self.horn_with_scale
+        raise ValueError(f"Unknown algorithm: {algo}")
+
     def is_nan(self, tensor: T) -> bool:
         raise NotImplementedError
 
