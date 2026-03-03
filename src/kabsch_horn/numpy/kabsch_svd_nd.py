@@ -27,8 +27,6 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
 
-    _B = P.shape[0]
-
     # Compute centroids
     centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1x3
     centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1x3
@@ -41,7 +39,7 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     H = np.matmul(p.transpose(0, 2, 1), q)  # Bx3x3
 
     # SVD
-    U, _S, Vt = np.linalg.svd(H)  # Bx3x3
+    U, _, Vt = np.linalg.svd(H)  # Bx3x3
 
     # Validate right-handed coordinate system
     d = np.linalg.det(np.matmul(Vt.transpose(0, 2, 1), U.transpose(0, 2, 1)))

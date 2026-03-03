@@ -129,3 +129,16 @@ def nd_batch_points(dim) -> tuple[np.ndarray, np.ndarray]:
     P = rng.random((2, 3, n_points, dim))  # Batch size 2x3
     Q = P + rng.random((2, 3, 1, dim))
     return P, Q
+
+
+@pytest.fixture(autouse=True)
+def skip_unsupported_dims(request: pytest.FixtureRequest) -> None:
+    """
+    Automatically skips tests where the requested framework adapter
+    does not support the requested spatial dimension.
+    """
+    if "dim" in request.fixturenames and "adapter" in request.fixturenames:
+        dim = request.getfixturevalue("dim")
+        adapter = request.getfixturevalue("adapter")
+        if not adapter.supports_dim(dim):
+            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")

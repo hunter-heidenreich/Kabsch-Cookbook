@@ -1,5 +1,5 @@
 [project]
-name = "kabsch-cookbook"
+name = "kabsch-horn-cookbook"
 version = "0.1.0"
 description = "A comprehensive differentiable Kabsch (SVD) and Horn (Quaternion) alignment cookbook for modern ML frameworks with safe backward-pass gradients."
 readme = "README.md"

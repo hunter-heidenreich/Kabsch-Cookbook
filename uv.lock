@@ -476,7 +476,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kabsch-cookbook"
+name = "kabsch-horn-cookbook"
 version = "0.1.0"
 source = { virtual = "." }
 
