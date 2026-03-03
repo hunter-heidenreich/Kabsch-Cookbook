@@ -7,6 +7,20 @@ from kabsch_horn import numpy as kabsch_np
 
 
 class TestForwardPassEquivalence:
+    """
+    Test suite verifying the forward pass equivalence of Kabsch and Umeyama algorithms.
+
+    This test class validates the core functionality of the spatial transformation
+    algorithms across different frameworks (NumPy, PyTorch, JAX, MLX, TensorFlow).
+    
+    It ensures:
+    - Identity transformations are returned for identical point clouds.
+    - Known geometric transformations (rotation, translation, scaling) are recovered correctly.
+    - Framework-specific implementations exactly match a reference NumPy implementation.
+    - N-dimensional batching logic computes exactly the same results as sequential processing.
+    - Input data types (e.g., float32, float64) are strictly preserved in the outputs.
+    """
+
     @pytest.mark.parametrize(
         "algo",
         [
@@ -157,17 +171,21 @@ class TestForwardPassEquivalence:
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        b0, b1 = P_np.shape[0], P_np.shape[1]
 
         batch_res = func(P_fw, Q_fw)
-
-        b0, b1 = P_np.shape[0], P_np.shape[1]
+        seq_results = []
         for i in range(b0):
+            row_res = []
             for j in range(b1):
                 P_seq = adapter.convert_in(P_np[i, j])
                 Q_seq = adapter.convert_in(Q_np[i, j])
-                seq_res = func(P_seq, Q_seq)
+                row_res.append(func(P_seq, Q_seq))
+            seq_results.append(row_res)
 
-                for b_tensor, s_tensor in zip(batch_res, seq_res, strict=False):
+        for i in range(b0):
+            for j in range(b1):
+                for b_tensor, s_tensor in zip(batch_res, seq_results[i][j], strict=False):
                     b_np = adapter.convert_out(b_tensor)
                     s_np = adapter.convert_out(s_tensor)
                     assert b_np[i, j] == pytest.approx(
