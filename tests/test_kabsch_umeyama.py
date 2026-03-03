@@ -3,7 +3,7 @@ import pytest
 from adapters import FrameworkAdapter, frameworks
 from utils import check_transform_close, compute_numeric_grad
 
-from kabsch_umeyama import numpy as kabsch_np
+from kabsch_horn import numpy as kabsch_np
 
 
 class TestForwardPassEquivalence:
@@ -658,7 +658,7 @@ class TestGradientVerification:
         """
         import torch
 
-        from kabsch_umeyama import pytorch as kabsch_torch
+        from kabsch_horn import pytorch as kabsch_torch
 
         P = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
         Q = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)

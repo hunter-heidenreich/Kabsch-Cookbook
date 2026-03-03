@@ -9,10 +9,10 @@ import pytest
 import tensorflow as tf
 import torch
 
-from kabsch_umeyama import jax as kabsch_jax
-from kabsch_umeyama import mlx as kabsch_mlx
-from kabsch_umeyama import pytorch as kabsch_torch
-from kabsch_umeyama import tensorflow as kabsch_tf
+from kabsch_horn import jax as kabsch_jax
+from kabsch_horn import mlx as kabsch_mlx
+from kabsch_horn import pytorch as kabsch_torch
+from kabsch_horn import tensorflow as kabsch_tf
 
 T = TypeVar("T")
 
