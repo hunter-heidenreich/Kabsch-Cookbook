@@ -44,10 +44,10 @@ class TestForwardPassEquivalence:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        dim = P_np.shape[-1]
 
         res = func(P, Q)
 
-        dim = P_np.shape[-1]
         check_transform_close(
             adapter,
             res,
@@ -174,21 +174,17 @@ class TestForwardPassEquivalence:
         b0, b1 = P_np.shape[0], P_np.shape[1]
 
         batch_res = func(P_fw, Q_fw)
-        seq_results = []
-        for i in range(b0):
-            row_res = []
-            for j in range(b1):
-                P_seq = adapter.convert_in(P_np[i, j])
-                Q_seq = adapter.convert_in(Q_np[i, j])
-                row_res.append(func(P_seq, Q_seq))
-            seq_results.append(row_res)
 
         for i in range(b0):
             for j in range(b1):
-                for b_tensor, s_tensor in zip(batch_res, seq_results[i][j], strict=False):
-                    b_np = adapter.convert_out(b_tensor)
+                P_seq = adapter.convert_in(P_np[i, j])
+                Q_seq = adapter.convert_in(Q_np[i, j])
+                seq_res = func(P_seq, Q_seq)
+
+                for b_tensor, s_tensor in zip(batch_res, seq_res, strict=False):
+                    b_np = adapter.convert_out(b_tensor)[i, j]
                     s_np = adapter.convert_out(s_tensor)
-                    assert b_np[i, j] == pytest.approx(
+                    assert b_np == pytest.approx(
                         s_np, rel=adapter.rtol, abs=adapter.atol
                     )
 
