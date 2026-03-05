@@ -16,8 +16,6 @@ class TestErrorHandling:
         P and Q have mismatched point counts.
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         # 5 points vs 4 points
         P_np = np.random.rand(5, dim).astype(np.float64)
@@ -43,8 +41,6 @@ class TestErrorHandling:
         (RMSD approaches 0), even though the transform is not uniquely determined.
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         # 2 points in 3D (underdetermined)
         P_np = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
@@ -84,8 +80,6 @@ class TestErrorHandling:
             )
 
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         import numpy as np
 

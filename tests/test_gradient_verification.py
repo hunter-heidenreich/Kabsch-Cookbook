@@ -20,12 +20,10 @@ class TestGradientVerification:
         gradients.
         """
         P_np, Q_np = batch_points
-        dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P_batch = adapter.convert_in(P_np)
         Q_batch = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        
+        func = adapter.get_transform_func(algo)
 
         grad_batch = adapter.get_grad(P_batch, Q_batch, func, seed=None, wrt=wrt)
 
@@ -33,8 +31,10 @@ class TestGradientVerification:
         for i in range(P_np.shape[0]):
             P_seq = adapter.convert_in(P_np[i])
             Q_seq = adapter.convert_in(Q_np[i])
+            
             g = adapter.get_grad(P_seq, Q_seq, func, seed=None, wrt=wrt)
             grads_seq.append(g)
+            
         grad_seq_stacked = np.stack(grads_seq)
 
         assert grad_batch == pytest.approx(
@@ -56,21 +56,21 @@ class TestGradientVerification:
         gradients.
         """
         P_np, Q_np = nd_batch_points
-        dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P_batch = adapter.convert_in(P_np)
         Q_batch = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        
+        func = adapter.get_transform_func(algo)
 
         grad_batch = adapter.get_grad(P_batch, Q_batch, func, seed=None, wrt=wrt)
 
         b0, b1 = P_np.shape[0], P_np.shape[1]
+        
         grads_seq = np.zeros_like(P_np) if wrt == "P" else np.zeros_like(Q_np)
         for i in range(b0):
             for j in range(b1):
                 P_seq = adapter.convert_in(P_np[i, j])
                 Q_seq = adapter.convert_in(Q_np[i, j])
+                
                 g = adapter.get_grad(P_seq, Q_seq, func, seed=None, wrt=wrt)
                 grads_seq[i, j] = g
 
@@ -81,6 +81,14 @@ class TestGradientVerification:
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize(
+        "dim",
+        [
+            pytest.param(2, id="2D"),
+            pytest.param(3, id="3D"),
+            pytest.param(4, id="4D"),
+        ],
+    )
     def test_gradients_match_finite_differences_when_perturbed(
         self, adapter: FrameworkAdapter, algo: str, wrt: str, dim: int
     ) -> None:
@@ -88,21 +96,17 @@ class TestGradientVerification:
         Compares analytically computed gradients against numerical finite
         differences.
         """
-        if dim >= 10:
-            pytest.skip("Finite differences too slow for dim >= 10")
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         np.random.seed(42)
         n_points = max(10, dim * 2)
+        
         P_np = np.random.rand(n_points, dim).astype(np.float64)
         Q_np = (P_np + np.random.rand(n_points, dim) * 0.1).astype(np.float64)
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        
+        func = adapter.get_transform_func(algo)
         ref_adapter = type(adapter)("float64")
-        func_ref = (
-            ref_adapter.kabsch_umeyama if algo == "umeyama" else ref_adapter.kabsch
-        )
+        func_ref = ref_adapter.get_transform_func(algo)
 
         grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
         grad_numeric = compute_numeric_grad(
@@ -116,6 +120,14 @@ class TestGradientVerification:
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize(
+        "dim",
+        [
+            pytest.param(2, id="2D"),
+            pytest.param(3, id="3D"),
+            pytest.param(4, id="4D"),
+        ],
+    )
     def test_gradients_match_finite_differences_when_purely_random(
         self, adapter: FrameworkAdapter, algo: str, wrt: str, dim: int
     ) -> None:
@@ -123,23 +135,18 @@ class TestGradientVerification:
         Compares analytically computed gradients against numerical finite
         differences for completely uncorrelated random point clouds.
         """
-        if dim >= 10:
-            pytest.skip("Finite differences too slow for dim >= 10")
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
-
         np.random.seed(123)
         n_points = max(10, dim * 2)
+        
         P_np = np.random.rand(n_points, dim).astype(np.float64)
         Q_np = np.random.rand(n_points, dim).astype(np.float64)
 
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        
+        func = adapter.get_transform_func(algo)
         ref_adapter = type(adapter)("float64")
-        func_ref = (
-            ref_adapter.kabsch_umeyama if algo == "umeyama" else ref_adapter.kabsch
-        )
+        func_ref = ref_adapter.get_transform_func(algo)
 
         grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
         grad_numeric = compute_numeric_grad(
@@ -151,7 +158,7 @@ class TestGradientVerification:
         )
 
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    def test_double_backward_is_computable_for_pytorch(
+    def test_computes_double_backward_when_using_pytorch(
         self,
         algo: str,
     ) -> None:
@@ -161,26 +168,20 @@ class TestGradientVerification:
         framework limitations.
         """
         import torch
-
-        from kabsch_horn import pytorch as kabsch_torch
+        from adapters import PyTorchAdapter
 
         P = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
         Q = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
-
-        func = kabsch_torch.kabsch_umeyama if algo == "umeyama" else kabsch_torch.kabsch
+        adapter = PyTorchAdapter(precision="float64")
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
         loss = sum([r.sum() for r in res])
 
-        # First derivative
         grad_P = torch.autograd.grad(loss, P, create_graph=True)[0]
 
-        # Second derivative check (sum of grad to condense to scalar)
         loss2 = grad_P.sum()
-        try:
-            loss2.backward()
-        except RuntimeError as e:
-            pytest.fail(f"Double backward failed: {e}")
+        loss2.backward()
 
         assert P.grad is not None
         assert torch.isfinite(P.grad).all()

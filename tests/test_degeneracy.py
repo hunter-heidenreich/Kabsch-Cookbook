@@ -18,8 +18,6 @@ class TestDegeneracy:
         Scale should theoretically go zero (for umeyama).
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         np.random.seed(42)
         P_np = np.random.rand(5, dim).astype(np.float64)

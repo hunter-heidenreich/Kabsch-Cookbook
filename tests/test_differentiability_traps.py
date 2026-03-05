@@ -20,8 +20,6 @@ class TestDifferentiabilityTraps:
         """
         P_np, Q_np = coplanar_points
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -46,8 +44,6 @@ class TestDifferentiabilityTraps:
         """
         P_np, Q_np = collinear_points
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -72,8 +68,6 @@ class TestDifferentiabilityTraps:
         """
         P_np, Q_np = perfect_cube
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -96,8 +90,6 @@ class TestDifferentiabilityTraps:
         """
         P_np, Q_np = reflected_points
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -123,8 +115,6 @@ class TestDifferentiabilityTraps:
         """
         P_np, Q_np = reflected_points
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P_grad_in = adapter.convert_in(P_np)
         Q_grad_in = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -150,8 +140,6 @@ class TestDifferentiabilityTraps:
         P_np = identity_points
         Q_np = np.copy(P_np)
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -174,8 +162,6 @@ class TestDifferentiabilityTraps:
         underdetermined.
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         # 2 points in 3D (underdetermined)
         P_np = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
@@ -207,8 +193,6 @@ class TestDifferentiabilityTraps:
         to the origin.
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         if algo == "umeyama" and getattr(adapter, "precision", "float64") in (
             "float16",
@@ -270,8 +254,6 @@ class TestDifferentiabilityTraps:
             Q_np = np.copy(P_np)
 
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)

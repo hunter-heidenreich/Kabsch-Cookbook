@@ -141,3 +141,43 @@ def check_transform_close(
         assert float(adapter.convert_out(rmsd)) == pytest.approx(
             rmsd_expected, rel=rtol, abs=atol
         )
+
+def compute_sequential_expected_tensors(
+    P_np: np.ndarray,
+    Q_np: np.ndarray,
+    adapter: FrameworkAdapter,
+    algo: str,
+) -> list[np.ndarray]:
+    """Computes expected batched outputs by running sequential computations.
+
+    Args:
+        P_np: Input N-D point cloud array.
+        Q_np: Target N-D point cloud array.
+        adapter: The framework adapter to use.
+        algo: Algorithm to use ('kabsch' or 'umeyama').
+
+    Returns:
+        List of concatenated numpy arrays matching batched output structure.
+    """
+    func = adapter.get_transform_func(algo)
+    b0, b1 = P_np.shape[0], P_np.shape[1]
+
+    expected_res = []
+    for i in range(b0):
+        row_res = []
+        for j in range(b1):
+            P_seq = adapter.convert_in(P_np[i, j])
+            Q_seq = adapter.convert_in(Q_np[i, j])
+            seq_res = func(P_seq, Q_seq)
+            row_res.append([adapter.convert_out(tensor) for tensor in seq_res])
+        expected_res.append(row_res)
+
+    num_tensors = len(expected_res[0][0])
+    expected_tensors = []
+    for t_idx in range(num_tensors):
+        expected_tensor_list = [
+            [expected_res[i][j][t_idx] for j in range(b1)] for i in range(b0)
+        ]
+        expected_tensors.append(np.array(expected_tensor_list))
+
+    return expected_tensors

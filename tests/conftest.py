@@ -131,14 +131,22 @@ def nd_batch_points(dim) -> tuple[np.ndarray, np.ndarray]:
     return P, Q
 
 
-@pytest.fixture(autouse=True)
-def skip_unsupported_dims(request: pytest.FixtureRequest) -> None:
+def pytest_collection_modifyitems(session, config, items) -> None:
     """
-    Automatically skips tests where the requested framework adapter
+    Filters out tests where the requested framework adapter
     does not support the requested spatial dimension.
     """
-    if "dim" in request.fixturenames and "adapter" in request.fixturenames:
-        dim = request.getfixturevalue("dim")
-        adapter = request.getfixturevalue("adapter")
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
+    kept = []
+    for item in items:
+        # Check if the test has a callspec (i.e. is parametrized)
+        if hasattr(item, "callspec"):
+            params = item.callspec.params
+            # Some tests have dim directly in params
+            if "dim" in params and "adapter" in params:
+                dim = params["dim"]
+                adapter = params["adapter"]
+                if not adapter.supports_dim(dim):
+                    continue
+        kept.append(item)
+    
+    items[:] = kept

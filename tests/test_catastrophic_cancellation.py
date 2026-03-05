@@ -17,8 +17,6 @@ class TestCatastrophicCancellation:
         wrong rotations and translations.
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         if getattr(adapter, "precision", "float64") != "float64":
             pytest.skip(
@@ -69,8 +67,6 @@ class TestCatastrophicCancellation:
         Tests when both P and Q are centered far from origin.
         """
         dim = 3
-        if not adapter.supports_dim(dim):
-            pytest.skip(f"{adapter.__class__.__name__} doesn't support {dim}D")
 
         if getattr(adapter, "precision", "float64") != "float64":
             pytest.skip(

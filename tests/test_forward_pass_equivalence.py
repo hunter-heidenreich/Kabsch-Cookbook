@@ -53,6 +53,13 @@ def _compute_sequential_expected_tensors(
     return expected_tensors
 
 
+def _kabsch_numpy_adapter(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, float]:
+    R, t, rmsd = kabsch_np.kabsch(P, Q)
+    return R, t, 1.0, float(rmsd)
+
+def _umeyama_numpy_adapter(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, float, float]:
+    return kabsch_np.kabsch_umeyama(P, Q)
+
 class TestForwardPassEquivalence:
     """
     Test suite verifying the forward pass equivalence of Kabsch and Umeyama algorithms.
@@ -93,10 +100,11 @@ class TestForwardPassEquivalence:
         """
         P_np = identity_points
         Q_np = np.copy(P_np)
+        dim = P_np.shape[-1]
+        
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
-        dim = P_np.shape[-1]
 
         res = func(P, Q)
 
@@ -113,10 +121,10 @@ class TestForwardPassEquivalence:
         )
 
     @pytest.mark.parametrize(
-        "algo",
+        "algo, q_expected_idx, c_expected_source",
         [
-            pytest.param("kabsch", id="kabsch"),
-            pytest.param("umeyama", id="umeyama"),
+            pytest.param("kabsch", 1, "constant", id="kabsch"),
+            pytest.param("umeyama", 2, "c_true", id="umeyama"),
         ],
     )
     @pytest.mark.parametrize("adapter", frameworks)
@@ -125,6 +133,8 @@ class TestForwardPassEquivalence:
         known_transform_points: KnownTransformT,
         adapter: FrameworkAdapter,
         algo: str,
+        q_expected_idx: int,
+        c_expected_source: str,
     ) -> None:
         """Ensures that the algorithm computes expected matrix, translation, and scale.
 
@@ -133,10 +143,16 @@ class TestForwardPassEquivalence:
                 c point clouds representing known ground truths.
             adapter: Parameterized framework adapter.
             algo: The algorithm to test ('kabsch' or 'umeyama').
+            q_expected_idx: The index in known_transform_points to extract Q.
+            c_expected_source: Indicator for how to fetch c_expected.
         """
-        P_np, Q_kabsch_np, Q_umeyama_np, R_true, t_true, c_true = known_transform_points
-        Q_expected = Q_umeyama_np if algo == "umeyama" else Q_kabsch_np
-        c_expected = c_true if algo == "umeyama" else 1.0
+        P_np = known_transform_points[0]
+        Q_expected = known_transform_points[q_expected_idx]
+        R_true, t_true, c_true = known_transform_points[3], known_transform_points[4], known_transform_points[5]
+        
+        c_expected_map = {"constant": 1.0, "c_true": c_true}
+        c_expected = c_expected_map[c_expected_source]
+        
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_expected)
         func = adapter.get_transform_func(algo)
@@ -156,10 +172,10 @@ class TestForwardPassEquivalence:
         )
 
     @pytest.mark.parametrize(
-        "algo",
+        "algo, q_expected_idx, ref_func",
         [
-            pytest.param("kabsch", id="kabsch"),
-            pytest.param("umeyama", id="umeyama"),
+            pytest.param("kabsch", 1, _kabsch_numpy_adapter, id="kabsch"),
+            pytest.param("umeyama", 2, _umeyama_numpy_adapter, id="umeyama"),
         ],
     )
     @pytest.mark.parametrize("adapter", frameworks)
@@ -168,6 +184,8 @@ class TestForwardPassEquivalence:
         known_transform_points: KnownTransformT,
         adapter: FrameworkAdapter,
         algo: str,
+        q_expected_idx: int,
+        ref_func,
     ) -> None:
         """Validates that output of framework implementations matches reference NumPy.
 
@@ -175,17 +193,17 @@ class TestForwardPassEquivalence:
             known_transform_points: Point clouds representing known ground truths.
             adapter: Parameterized framework adapter.
             algo: The algorithm to test ('kabsch' or 'umeyama').
+            q_expected_idx: The index in known_transform_points to extract Q.
+            ref_func: Reference function from numpy implementation.
         """
-        P_np, Q_kabsch_np, Q_umeyama_np, _, _, _ = known_transform_points
-        Q_expected = Q_umeyama_np if algo == "umeyama" else Q_kabsch_np
+        P_np = known_transform_points[0]
+        Q_expected = known_transform_points[q_expected_idx]
+        
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_expected)
         func = adapter.get_transform_func(algo)
-        if algo == "umeyama":
-            R_np, t_np, c_np, rmsd_np = kabsch_np.kabsch_umeyama(P_np, Q_expected)
-        else:
-            R_np, t_np, rmsd_np = kabsch_np.kabsch(P_np, Q_expected)
-            c_np = 1.0
+        
+        R_np, t_np, c_np, rmsd_np = ref_func(P_np, Q_expected)
 
         res = func(P, Q)
 
@@ -226,6 +244,7 @@ class TestForwardPassEquivalence:
         expected_tensors = _compute_sequential_expected_tensors(
             P_np, Q_np, adapter, algo
         )
+        
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
@@ -233,6 +252,7 @@ class TestForwardPassEquivalence:
         batch_res = func(P_fw, Q_fw)
 
         actual_tensors = [adapter.convert_out(t) for t in batch_res]
+        
         for actual, expected in zip(actual_tensors, expected_tensors, strict=True):
             assert actual == pytest.approx(
                 expected,
@@ -241,10 +261,10 @@ class TestForwardPassEquivalence:
             )
 
     @pytest.mark.parametrize(
-        "algo",
+        "algo, q_expected_idx",
         [
-            pytest.param("kabsch", id="kabsch"),
-            pytest.param("umeyama", id="umeyama"),
+            pytest.param("kabsch", 1, id="kabsch"),
+            pytest.param("umeyama", 2, id="umeyama"),
         ],
     )
     @pytest.mark.parametrize("adapter", frameworks)
@@ -253,6 +273,7 @@ class TestForwardPassEquivalence:
         known_transform_points: KnownTransformT,
         adapter: FrameworkAdapter,
         algo: str,
+        q_expected_idx: int,
     ) -> None:
         """Verifies that the returned tensors maintain exactly the same dtype as inputs.
 
@@ -260,11 +281,14 @@ class TestForwardPassEquivalence:
             known_transform_points: Point clouds representing known ground truths.
             adapter: Parameterized framework adapter.
             algo: The algorithm to test ('kabsch' or 'umeyama').
+            q_expected_idx: The index in known_transform_points to extract Q.
         """
-        P_np, Q_kabsch_np, Q_umeyama_np, _, _, _ = known_transform_points
-        Q_expected = Q_umeyama_np if algo == "umeyama" else Q_kabsch_np
+        P_np = known_transform_points[0]
+        Q_expected = known_transform_points[q_expected_idx]
+        
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_expected)
+        
         func = adapter.get_transform_func(algo)
         expected_dtype = adapter._DTYPE_MAP[adapter.precision]
 
