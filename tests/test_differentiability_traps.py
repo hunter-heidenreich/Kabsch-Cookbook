@@ -19,7 +19,7 @@ class TestDifferentiabilityTraps:
         are coplanar.
         """
         P_np, Q_np = coplanar_points
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -43,7 +43,7 @@ class TestDifferentiabilityTraps:
         are collinear.
         """
         P_np, Q_np = collinear_points
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -67,7 +67,7 @@ class TestDifferentiabilityTraps:
         cube.
         """
         P_np, Q_np = perfect_cube
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -89,7 +89,7 @@ class TestDifferentiabilityTraps:
         reflections.
         """
         P_np, Q_np = reflected_points
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -114,7 +114,7 @@ class TestDifferentiabilityTraps:
         reflection.
         """
         P_np, Q_np = reflected_points
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
         P_grad_in = adapter.convert_in(P_np)
         Q_grad_in = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -139,7 +139,7 @@ class TestDifferentiabilityTraps:
         """
         P_np = identity_points
         Q_np = np.copy(P_np)
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
@@ -161,7 +161,6 @@ class TestDifferentiabilityTraps:
         Checks that gradients remain numerically stable when the system is
         underdetermined.
         """
-        dim = 3
 
         # 2 points in 3D (underdetermined)
         P_np = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
@@ -253,7 +252,7 @@ class TestDifferentiabilityTraps:
             P_np = points
             Q_np = np.copy(P_np)
 
-        dim = P_np.shape[-1]
+        P_np.shape[-1]
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
@@ -284,3 +283,191 @@ class TestDifferentiabilityTraps:
 
         # With lower precision, floating point noise around zero can mask the descent.
         assert rmsd_new < rmsd_orig + adapter.eps
+
+
+class TestHornDifferentiabilityTraps:
+    """
+    Gradient stability tests for Horn quaternion algorithms (3D-only).
+
+    Horn uses a different code path (quaternion eigensystem) than Kabsch (SVD),
+    so degenerate inputs may trigger different numerical pitfalls. All fixtures
+    are hardcoded to 3D.
+    """
+
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_stable_coplanar(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+    ) -> None:
+        rng = np.random.default_rng(42)
+        P_np = rng.random((20, 3))
+        P_np[:, -1] = 0.0
+        R = np.linalg.qr(rng.normal(size=(3, 3)))[0]
+        if np.linalg.det(R) < 0:
+            R[:, 0] *= -1
+        Q_np = P_np @ R.T + rng.random((3,))
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
+
+        assert np.isfinite(grad).all()
+
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_stable_collinear(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+    ) -> None:
+        rng = np.random.default_rng(42)
+        P_np = np.zeros((20, 3))
+        P_np[:, 0] = rng.random(20) * 10.0
+        R = np.linalg.qr(rng.normal(size=(3, 3)))[0]
+        if np.linalg.det(R) < 0:
+            R[:, 0] *= -1
+        Q_np = P_np @ R.T + rng.random((3,))
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
+
+        assert np.isfinite(grad).all()
+
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_stable_perfect_cube(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+    ) -> None:
+        points = []
+        for i in range(3):
+            p1, p2 = np.zeros(3), np.zeros(3)
+            p1[i] = -1.0
+            p2[i] = 1.0
+            points.append(p1)
+            points.append(p2)
+        P_np = np.array(points, dtype=np.float64)
+        Q_np = P_np + 0.5
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
+
+        assert np.isfinite(grad).all()
+
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_returns_positive_det_for_reflected(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        rng = np.random.default_rng(42)
+        P_np = rng.random((20, 3))
+        Q_np = np.copy(P_np)
+        Q_np[:, 0] = -Q_np[:, 0]
+
+        P_fw = adapter.convert_in(P_np)
+        Q_fw = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        res = func(P_fw, Q_fw)
+        R = adapter.convert_out(res[0])
+
+        assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol)
+
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_stable_reflected(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+    ) -> None:
+        rng = np.random.default_rng(42)
+        P_np = rng.random((20, 3))
+        Q_np = np.copy(P_np)
+        Q_np[:, 0] = -Q_np[:, 0]
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
+
+        assert np.isfinite(grad).all()
+
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_stable_identical(
+        self,
+        horn_identity_points: np.ndarray,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+    ) -> None:
+        P_np = horn_identity_points
+        Q_np = np.copy(P_np)
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
+
+        assert np.isfinite(grad).all()
+
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("collapse_target", ["P", "Q", "Both"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_stable_origin_collapse(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+        collapse_target: str,
+    ) -> None:
+        if algo == "horn_with_scale" and getattr(adapter, "precision", "float64") in (
+            "float16",
+            "bfloat16",
+        ):
+            pytest.skip(
+                "Horn-with-scale variance division overflows float16"
+                " on origin collapse."
+            )
+
+        np.random.seed(42)
+        P_np = np.random.rand(5, 3).astype(np.float64)
+        Q_np = np.random.rand(5, 3).astype(np.float64)
+
+        if collapse_target in ["P", "Both"]:
+            P_np = np.zeros_like(P_np)
+        if collapse_target in ["Q", "Both"]:
+            Q_np = np.zeros_like(Q_np)
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        grad = adapter.get_grad(P, Q, func, wrt=wrt)
+
+        assert np.isfinite(grad).all()

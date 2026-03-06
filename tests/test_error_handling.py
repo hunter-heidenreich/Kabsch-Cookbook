@@ -40,7 +40,6 @@ class TestErrorHandling:
         The algorithms should mathematically succeed and find a perfect fit
         (RMSD approaches 0), even though the transform is not uniquely determined.
         """
-        dim = 3
 
         # 2 points in 3D (underdetermined)
         P_np = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)

@@ -16,7 +16,7 @@ def call_safe_eigh(A):
         if grad_V is None:
             grad_V = tf.zeros_like(V)
 
-        D = tf.expand_dims(L, -1) - tf.expand_dims(L, -2)
+        D = tf.expand_dims(L, -2) - tf.expand_dims(L, -1)
 
         mask = tf.abs(D) < eps
         safe_D = tf.where(mask, eps * tf.sign(D + eps), D)
@@ -27,7 +27,8 @@ def call_safe_eigh(A):
 
         Vt_dV = tf.matmul(V, grad_V, transpose_a=True)
 
-        term = tf.linalg.diag(grad_L) + F * (Vt_dV - tf.linalg.matrix_transpose(Vt_dV))
+        sym = (Vt_dV - tf.linalg.matrix_transpose(Vt_dV)) / 2
+        term = tf.linalg.diag(grad_L) + F * sym
         grad_A = tf.matmul(V, tf.matmul(term, tf.linalg.matrix_transpose(V)))
 
         return grad_A
@@ -39,6 +40,11 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     # Assume 3D
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
+
+    orig_dtype = P.dtype
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        P = tf.cast(P, tf.float32)
+        Q = tf.cast(Q, tf.float32)
 
     is_single = tf.rank(P) == 2
     if is_single:
@@ -65,8 +71,7 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         axis=-1,
     )
 
-    B_sz = tf.shape(H)[0]
-    I3 = tf.eye(3, batch_shape=[B_sz], dtype=H.dtype)
+    I3 = tf.eye(3, dtype=H.dtype)
 
     top_row = tf.expand_dims(tf.concat([tf.expand_dims(tr, -1), Delta], axis=-1), -2)
     bottom_block = tf.concat(
@@ -111,13 +116,19 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     )
 
     aligned = tf.matmul(p, R, transpose_b=True)
-    N_pts_f = tf.cast(tf.shape(P)[1], P.dtype)
+    N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
     rmsd = tf.sqrt(
-        tf.maximum(tf.reduce_sum(tf.square(aligned - q), axis=[1, 2]) / N_pts_f, 1e-12)
+        tf.maximum(
+            tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f, 1e-12
+        )
     )
 
     if is_single:
-        return R[0], t[0], rmsd[0]
+        R, t, rmsd = R[0], t[0], rmsd[0]
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        R = tf.cast(R, orig_dtype)
+        t = tf.cast(t, orig_dtype)
+        rmsd = tf.cast(rmsd, orig_dtype)
     return R, t, rmsd
 
 
@@ -126,6 +137,11 @@ def horn_with_scale(
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
+
+    orig_dtype = P.dtype
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        P = tf.cast(P, tf.float32)
+        Q = tf.cast(Q, tf.float32)
 
     is_single = tf.rank(P) == 2
     if is_single:
@@ -138,8 +154,8 @@ def horn_with_scale(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    N_pts_f = tf.cast(tf.shape(P)[1], P.dtype)
-    var_P = tf.reduce_sum(tf.square(p), axis=[1, 2]) / N_pts_f
+    N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
+    var_P = tf.reduce_sum(tf.square(p), axis=[-2, -1]) / N_pts_f
 
     H = tf.matmul(p, q, transpose_a=True) / N_pts_f
 
@@ -155,8 +171,7 @@ def horn_with_scale(
         axis=-1,
     )
 
-    B_sz = tf.shape(H)[0]
-    I3 = tf.eye(3, batch_shape=[B_sz], dtype=H.dtype)
+    I3 = tf.eye(3, dtype=H.dtype)
 
     top_row = tf.expand_dims(tf.concat([tf.expand_dims(tr, -1), Delta], axis=-1), -2)
     bottom_block = tf.concat(
@@ -196,7 +211,7 @@ def horn_with_scale(
         axis=-2,
     )
 
-    RH = tf.reduce_sum(R * tf.linalg.matrix_transpose(H), axis=[1, 2])
+    RH = tf.reduce_sum(R * tf.linalg.matrix_transpose(H), axis=[-2, -1])
     c = RH / tf.maximum(var_P, 1e-12)
 
     t = tf.squeeze(centroid_Q, axis=-2) - tf.expand_dims(c, -1) * tf.squeeze(
@@ -208,9 +223,14 @@ def horn_with_scale(
     ) + tf.expand_dims(t, -2)
     diff = aligned_P - Q
     rmsd = tf.sqrt(
-        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[1, 2]) / N_pts_f, 1e-12)
+        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f, 1e-12)
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+    if orig_dtype in (tf.float16, tf.bfloat16):
+        R = tf.cast(R, orig_dtype)
+        t = tf.cast(t, orig_dtype)
+        c = tf.cast(c, orig_dtype)
+        rmsd = tf.cast(rmsd, orig_dtype)
     return R, t, c, rmsd

@@ -124,10 +124,10 @@ def check_transform_close(
 ) -> None:
     __tracebackhide__ = True
 
-    if algo == "umeyama":
+    if algo in ("umeyama", "horn_with_scale"):
         R, t, c, rmsd = res
         c_out = adapter.convert_out(c)
-    elif algo == "kabsch":
+    elif algo in ("kabsch", "horn"):
         R, t, rmsd = res
         c_out = 1.0
     else:
@@ -141,6 +141,7 @@ def check_transform_close(
         assert float(adapter.convert_out(rmsd)) == pytest.approx(
             rmsd_expected, rel=rtol, abs=atol
         )
+
 
 def compute_sequential_expected_tensors(
     P_np: np.ndarray,

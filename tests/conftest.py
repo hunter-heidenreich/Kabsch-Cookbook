@@ -131,6 +131,40 @@ def nd_batch_points(dim) -> tuple[np.ndarray, np.ndarray]:
     return P, Q
 
 
+@pytest.fixture
+def horn_identity_points() -> np.ndarray:
+    rng = np.random.default_rng(42)
+    return rng.random((20, 3))
+
+
+@pytest.fixture
+def horn_known_transform_points() -> tuple:
+    rng = np.random.default_rng(42)
+    P = rng.random((20, 3))
+    R_true = _get_random_rotation(rng, 3)
+    t_true = rng.random((3,)) * 5.0 - 2.5
+    c_true = 2.5
+    Q_horn = P @ R_true.T + t_true
+    Q_horn_scale = c_true * (P @ R_true.T) + t_true
+    return P, Q_horn, Q_horn_scale, R_true, t_true, c_true
+
+
+@pytest.fixture
+def horn_batch_points() -> tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(42)
+    P = rng.random((5, 20, 3))
+    Q = P + rng.random((5, 1, 3))
+    return P, Q
+
+
+@pytest.fixture
+def horn_nd_batch_points() -> tuple[np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(42)
+    P = rng.random((2, 3, 20, 3))
+    Q = P + rng.random((2, 3, 1, 3))
+    return P, Q
+
+
 def pytest_collection_modifyitems(session, config, items) -> None:
     """
     Filters out tests where the requested framework adapter
@@ -148,5 +182,5 @@ def pytest_collection_modifyitems(session, config, items) -> None:
                 if not adapter.supports_dim(dim):
                     continue
         kept.append(item)
-    
+
     items[:] = kept

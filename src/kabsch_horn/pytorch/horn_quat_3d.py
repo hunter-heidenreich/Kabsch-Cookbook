@@ -36,7 +36,7 @@ class SafeEigh(torch.autograd.Function):
 
         # 4. Standard backprop algebra using safe denominators
         Vt_dV = torch.matmul(V.mH, grad_V)
-        term = torch.diag_embed(grad_L) + F * (Vt_dV - Vt_dV.mH)
+        term = torch.diag_embed(grad_L) + F * (Vt_dV - Vt_dV.mH) / 2
 
         grad_A = torch.matmul(V, torch.matmul(term, V.mH))
 
@@ -51,10 +51,21 @@ def horn(
     method.
     """
     assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    orig_dtype = P.dtype
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        P = P.to(torch.float32)
+        Q = Q.to(torch.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
+
+    orig_shape = P.shape
+    N_pts = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+    P = P.reshape(-1, N_pts, 3)
+    Q = Q.reshape(-1, N_pts, 3)
 
     # 1. Compute Centers and 3x3 Cross-Covariance
     centroid_P = P.mean(dim=1, keepdim=True)
@@ -128,13 +139,24 @@ def horn(
     # RMSD
     aligned = torch.matmul(p, R.transpose(1, 2))
     rmsd = torch.sqrt(
-        torch.clamp(
-            torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1], min=1e-12
-        )
+        torch.clamp(torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts, min=1e-12)
     )
 
     if is_single:
-        return R[0], t[0], rmsd[0]
+        R, t, rmsd = R[0], t[0], rmsd[0]
+        if orig_dtype in (torch.float16, torch.bfloat16):
+            R = R.to(orig_dtype)
+            t = t.to(orig_dtype)
+            rmsd = rmsd.to(orig_dtype)
+        return R, t, rmsd
+
+    R = R.reshape(*batch_dims, 3, 3)
+    t = t.reshape(*batch_dims, 3)
+    rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        R = R.to(orig_dtype)
+        t = t.to(orig_dtype)
+        rmsd = rmsd.to(orig_dtype)
     return R, t, rmsd
 
 
@@ -145,12 +167,21 @@ def horn_with_scale(
     Computes optimal rotation, translation, and scale using Horn's method.
     """
     assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    orig_dtype = P.dtype
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        P = P.to(torch.float32)
+        Q = Q.to(torch.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
 
-    _B, N_pts, _D = P.shape
+    orig_shape = P.shape
+    N_pts = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+    P = P.reshape(-1, N_pts, 3)
+    Q = Q.reshape(-1, N_pts, 3)
 
     centroid_P = P.mean(dim=1, keepdim=True)
     centroid_Q = Q.mean(dim=1, keepdim=True)
@@ -229,5 +260,21 @@ def horn_with_scale(
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+        if orig_dtype in (torch.float16, torch.bfloat16):
+            R = R.to(orig_dtype)
+            t = t.to(orig_dtype)
+            c = c.to(orig_dtype)
+            rmsd = rmsd.to(orig_dtype)
+        return R, t, c, rmsd
+
+    R = R.reshape(*batch_dims, 3, 3)
+    t = t.reshape(*batch_dims, 3)
+    c = c.reshape(*batch_dims)
+    rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (torch.float16, torch.bfloat16):
+        R = R.to(orig_dtype)
+        t = t.to(orig_dtype)
+        c = c.to(orig_dtype)
+        rmsd = rmsd.to(orig_dtype)
     return R, t, c, rmsd
