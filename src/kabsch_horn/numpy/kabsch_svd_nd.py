@@ -18,7 +18,10 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
 
-    assert P.shape == Q.shape, "Matrix dimensions must match"
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -96,7 +99,10 @@ def kabsch_umeyama(
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
 
-    assert P.shape == Q.shape, "Matrix dimensions must match"
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]

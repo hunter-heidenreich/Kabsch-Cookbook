@@ -165,7 +165,7 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
 
     @property
     def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
-        return AssertionError
+        return (AssertionError, ValueError)
 
 
 class JAXAdapter(FrameworkAdapter[jax.Array]):

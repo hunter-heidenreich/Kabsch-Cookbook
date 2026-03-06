@@ -3,16 +3,20 @@ import jax.numpy as jnp
 
 
 @jax.custom_vjp
-def safe_eigh(A, eps=1e-12):
+def safe_eigh(A: jnp.ndarray, eps: float = 1e-12) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Gradient-safe eigendecomposition for symmetric matrices. Masks near-zero
+    eigenvalue differences (< eps) in the backward pass to prevent NaN gradients."""
     return jnp.linalg.eigh(A)
 
 
-def _eigh_fwd(A, eps):
+def _eigh_fwd(
+    A: jnp.ndarray, eps: float
+) -> tuple[tuple[jnp.ndarray, jnp.ndarray], tuple]:
     L, V = jnp.linalg.eigh(A)
     return (L, V), (L, V, eps)
 
 
-def _eigh_bwd(res, g):
+def _eigh_bwd(res: tuple, g: tuple) -> tuple:
     L, V, eps = res
     grad_L, grad_V = g
 
@@ -44,7 +48,7 @@ def _eigh_bwd(res, g):
     vmap_diag = jax.vmap(jnp.diag) if L.ndim > 1 else jnp.diag
     L_diag = vmap_diag(grad_L)
 
-    term = L_diag + F * (Vt_dV - mH(Vt_dV))
+    term = L_diag + F * (Vt_dV - mH(Vt_dV)) / 2
     grad_A = jnp.matmul(V, jnp.matmul(term, mH(V)))
 
     return (grad_A, None)
@@ -56,10 +60,36 @@ safe_eigh.defvjp(_eigh_fwd, _eigh_bwd)
 def horn(
     P: jnp.ndarray, Q: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """
+    Computes optimal rotation and translation to align P to Q using Horn's
+    quaternion method.
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh) to avoid
+    NaN gradients when point clouds are symmetric or degenerate.
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+    """
+    orig_dtype = P.dtype
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        P = P.astype(jnp.float32)
+        Q = Q.astype(jnp.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
+
+    orig_shape = P.shape
+    N_pts = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+    P = P.reshape(-1, N_pts, 3)
+    Q = Q.reshape(-1, N_pts, 3)
 
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
@@ -82,7 +112,7 @@ def horn(
     )
 
     B = H.shape[0]
-    I3 = jnp.broadcast_to(jnp.eye(3), (B, 3, 3))
+    I3 = jnp.broadcast_to(jnp.eye(3, dtype=H.dtype), (B, 3, 3))
 
     top_row = jnp.concatenate([tr[..., jnp.newaxis], Delta], axis=-1)[:, jnp.newaxis, :]
     bottom_block = jnp.concatenate(
@@ -125,26 +155,63 @@ def horn(
     aligned = jnp.matmul(p, jnp.swapaxes(R, 1, 2))
     rmsd = jnp.sqrt(
         jnp.clip(
-            jnp.sum(jnp.square(aligned - q), axis=(1, 2)) / P.shape[1],
+            jnp.sum(jnp.square(aligned - q), axis=(1, 2)) / N_pts,
             min=1e-12,
             max=None,
         )
     )
 
     if is_single:
-        return R[0], t[0], rmsd[0]
+        R, t, rmsd = R[0], t[0], rmsd[0]
+        if orig_dtype in (jnp.float16, jnp.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+        return R, t, rmsd
+
+    R = R.reshape(*batch_dims, 3, 3)
+    t = t.reshape(*batch_dims, 3)
+    rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
     return R, t, rmsd
 
 
 def horn_with_scale(
     P: jnp.ndarray, Q: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """
+    Computes optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 and downcast on output.
+    """
+    orig_dtype = P.dtype
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        P = P.astype(jnp.float32)
+        Q = Q.astype(jnp.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
 
-    _B, N_pts, _D = P.shape
+    orig_shape = P.shape
+    N_pts = orig_shape[-2]
+    batch_dims = orig_shape[:-2]
+    P = P.reshape(-1, N_pts, 3)
+    Q = Q.reshape(-1, N_pts, 3)
 
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
@@ -169,7 +236,7 @@ def horn_with_scale(
     )
 
     B = H.shape[0]
-    I3 = jnp.broadcast_to(jnp.eye(3), (B, 3, 3))
+    I3 = jnp.broadcast_to(jnp.eye(3, dtype=H.dtype), (B, 3, 3))
 
     top_row = jnp.concatenate([tr[..., jnp.newaxis], Delta], axis=-1)[:, jnp.newaxis, :]
     bottom_block = jnp.concatenate(
@@ -222,5 +289,21 @@ def horn_with_scale(
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+        if orig_dtype in (jnp.float16, jnp.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            c = c.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+        return R, t, c, rmsd
+
+    R = R.reshape(*batch_dims, 3, 3)
+    t = t.reshape(*batch_dims, 3)
+    c = c.reshape(*batch_dims)
+    rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (jnp.float16, jnp.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        c = c.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
     return R, t, c, rmsd

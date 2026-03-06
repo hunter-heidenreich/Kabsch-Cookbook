@@ -67,9 +67,26 @@ def safe_svd_bwd(primals, cotangents, outputs):
 
 def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     """
-    Computes the optimal rotation and translation to align P and Q.
-    Returns (R, t, rmsd)
+    Computes the optimal rotation and translation to align P to Q.
+
+    MLX only supports 3D inputs (dim=3) due to the hardcoded 3x3 determinant correction.
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+
+    Raises:
+        ValueError: If inputs are not 3-dimensional (D != 3).
     """
+    if P.shape[-1] != 3:
+        raise ValueError(
+            f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
+            "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
+        )
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -146,9 +163,29 @@ def kabsch_umeyama(
     P: mx.array, Q: mx.array
 ) -> tuple[mx.array, mx.array, mx.array, mx.array]:
     """
-    Computes the optimal rotation, translation, and scale.
-    Returns (R, t, c, rmsd)
+    Computes the optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    MLX only supports 3D inputs (dim=3) due to the hardcoded 3x3 determinant
+    correction.
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 and downcast on output.
+
+    Raises:
+        ValueError: If inputs are not 3-dimensional (D != 3).
     """
+    if P.shape[-1] != 3:
+        raise ValueError(
+            f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
+            "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
+        )
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -224,3 +261,15 @@ def kabsch_umeyama(
         rmsd = rmsd.astype(orig_dtype)
 
     return R, t, c, rmsd
+
+
+def kabsch_rmsd(P: mx.array, Q: mx.array) -> mx.array:
+    """Computes RMSD after Kabsch alignment. Gradient-safe training loss."""
+    _R, _t, rmsd = kabsch(P, Q)
+    return rmsd
+
+
+def kabsch_umeyama_rmsd(P: mx.array, Q: mx.array) -> mx.array:
+    """Computes RMSD after Kabsch-Umeyama alignment. Gradient-safe training loss."""
+    _R, _t, _c, rmsd = kabsch_umeyama(P, Q)
+    return rmsd

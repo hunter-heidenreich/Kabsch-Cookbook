@@ -51,6 +51,9 @@ class SafeSVD(torch.autograd.Function):
         D = S_sq.unsqueeze(-1) - S_sq.unsqueeze(-2)  # BxDxD
 
         # 3. Safe F matrix computation
+        # eps=1e-12 masks singular value differences below float64 machine precision
+        # (~2e-16) but well above float32 loss (~1e-7), preventing division-by-zero
+        # NaN gradients without distorting the backward signal.
         D_abs = torch.abs(D)
         mask = D_abs < eps
 
@@ -123,7 +126,10 @@ def kabsch(
     Computes the optimal rotation and translation to align P to Q using Safe SVD.
     Returns (R, t, rmsd).
     """
-    assert P.shape == Q.shape, "Matrix dimensions must match"
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
 
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
@@ -214,7 +220,10 @@ def kabsch_umeyama(
     Computes optimal rotation, translation, and scale (Q ~ c * R @ P + t).
     Returns (R, t, c, rmsd).
     """
-    assert P.shape == Q.shape, "Matrix dimensions must match"
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
 
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
@@ -300,3 +309,15 @@ def kabsch_umeyama(
         rmsd = rmsd.to(orig_dtype)
 
     return R, t, c, rmsd
+
+
+def kabsch_rmsd(P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+    """Computes RMSD after Kabsch alignment. Gradient-safe training loss."""
+    _R, _t, rmsd = kabsch(P, Q)
+    return rmsd
+
+
+def kabsch_umeyama_rmsd(P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+    """Computes RMSD after Kabsch-Umeyama alignment. Gradient-safe training loss."""
+    _R, _t, _c, rmsd = kabsch_umeyama(P, Q)
+    return rmsd

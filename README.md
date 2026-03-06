@@ -79,10 +79,30 @@ The primary functions (`kabsch`, `kabsch_umeyama`, `horn`, and `horn_with_scale`
 ## Extending the Cookbook
 
 ### Adding Custom Loss Functions
-[Scaffold: Detail how users can wrap these rotation calculations into custom contrastive or generative loss functions.]
+
+Each framework's `kabsch_rmsd` and `kabsch_umeyama_rmsd` functions are the simplest entry point for gradient-based training. For more complex losses, call `kabsch` or `horn` directly and operate on the returned `R`, `t`, and `rmsd` tensors:
+
+```python
+from kabsch_horn import pytorch as kh
+
+def contrastive_alignment_loss(P_pos, Q_pos, P_neg, Q_neg):
+    rmsd_pos = kh.kabsch_rmsd(P_pos, Q_pos)
+    rmsd_neg = kh.kabsch_rmsd(P_neg, Q_neg)
+    return (rmsd_pos - rmsd_neg + margin).clamp(min=0).mean()
+```
+
+The rotation matrix `R` returned by `kabsch` and `horn` is differentiable, so it can be composed into downstream losses (e.g., point-to-point error after applying a learned perturbation on top of `R`).
 
 ### Adapting to New Frameworks
-[Scaffold: Explain the required interfaces for porting these algorithms to other mathematical backends (e.g., plain C++, CUDA, or new Python frameworks).]
+
+To port these algorithms to a new backend, implement the following interface:
+
+1. **`safe_svd(A)`** -- A custom-gradient SVD that masks near-zero singular value differences in the backward pass with `eps=1e-12`. See `src/kabsch_horn/pytorch/kabsch_svd_nd.py` (`SafeSVD`) for the reference implementation.
+2. **`safe_eigh(A)`** -- Same pattern for eigendecomposition, used by Horn's method. See `SafeEigh` in `src/kabsch_horn/pytorch/horn_quat_3d.py`.
+3. **`kabsch(P, Q)`** -- Accepts `[N, D]` or `[..., N, D]` inputs and returns `(R, t, rmsd)`.
+4. **`horn(P, Q)`** -- Accepts `[N, 3]` or `[..., N, 3]` inputs and returns `(R, t, rmsd)`.
+
+The NumPy module (`src/kabsch_horn/numpy/`) is a clean forward-pass-only reference with no autograd dependencies, useful as a starting point.
 
 ## Testing
 

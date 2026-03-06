@@ -16,10 +16,14 @@ def safe_eigh_bwd(primals, cotangents, outputs):
 
     L, V = outputs
 
-    D = mx.expand_dims(L, -1) - mx.expand_dims(L, -2)
+    D = mx.expand_dims(L, -2) - mx.expand_dims(L, -1)
 
     eye = mx.eye(D.shape[-1], dtype=D.dtype)
-    safe_D = mx.where(mx.abs(D) < 1e-12, eye * 1e-12, D)
+    eps = 1e-12
+    mask = mx.abs(D) < eps
+    safe_D = mx.where(mask, eps * mx.sign(D + eps), D)
+    # Set diagonal to 1.0 so 1/safe_D is defined everywhere; zero it out after
+    safe_D = mx.where(eye == 1, mx.ones_like(safe_D), safe_D)
 
     F = 1.0 / safe_D
     F = mx.where(eye == 1, mx.zeros_like(F), F)
@@ -28,7 +32,7 @@ def safe_eigh_bwd(primals, cotangents, outputs):
 
     dL_mat = mx.expand_dims(dL, -1) * eye
 
-    term = dL_mat + F * (Vt_dV - Vt_dV.swapaxes(-1, -2))
+    term = dL_mat + F * (Vt_dV - Vt_dV.swapaxes(-1, -2)) / 2
 
     dA = mx.matmul(V, mx.matmul(term, V.swapaxes(-1, -2)))
     dA = mx.where(mx.isnan(dA), mx.zeros_like(dA), dA)
@@ -37,8 +41,27 @@ def safe_eigh_bwd(primals, cotangents, outputs):
 
 
 def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
+    """
+    Computes optimal rotation and translation to align P to Q using Horn's
+    quaternion method.
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh_fwd) to
+    avoid NaN gradients when point clouds are symmetric or degenerate.
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+    """
     P = mx.array(P)
     Q = mx.array(Q)
+    orig_dtype = P.dtype
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        P = P.astype(mx.float32)
+        Q = Q.astype(mx.float32)
 
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
     centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
@@ -111,14 +134,37 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
     rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
 
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
     return R, t, rmsd
 
 
 def horn_with_scale(
     P: mx.array, Q: mx.array
 ) -> tuple[mx.array, mx.array, mx.array, mx.array]:
+    """
+    Computes optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh_fwd).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 and downcast on output.
+    """
     P = mx.array(P)
     Q = mx.array(Q)
+    orig_dtype = P.dtype
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        P = P.astype(mx.float32)
+        Q = Q.astype(mx.float32)
     N_pts_f = mx.array(P.shape[-2], dtype=P.dtype)
 
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
@@ -198,4 +244,9 @@ def horn_with_scale(
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
     rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
 
+    if orig_dtype in (mx.float16, mx.bfloat16):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        c = c.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
     return R, t, c, rmsd
