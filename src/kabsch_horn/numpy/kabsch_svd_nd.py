@@ -91,7 +91,8 @@ def kabsch_umeyama(
         Q: Target points, shape [..., N, D].
 
     Returns:
-        (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...], RMSD [...].
+        (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
+        RMSD [...].
     """
     if P.shape != Q.shape:
         raise ValueError(
