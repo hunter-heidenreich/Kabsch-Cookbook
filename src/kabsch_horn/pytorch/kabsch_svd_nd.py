@@ -139,8 +139,6 @@ def kabsch(
     P = P.view(-1, _N, D)
     Q = Q.view(-1, _N, D)
 
-    _B = P.shape[0]
-
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)  # Bx1x3
     centroid_Q = torch.mean(Q, dim=1, keepdim=True)  # Bx1x3
@@ -232,8 +230,6 @@ def kabsch_umeyama(
 
     P = P.view(-1, N, D)
     Q = Q.view(-1, N, D)
-
-    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)

@@ -123,8 +123,6 @@ def kabsch(
     P = P.reshape(-1, N, D)
     Q = Q.reshape(-1, N, D)
 
-    _B = P.shape[0]
-
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
 
@@ -209,8 +207,6 @@ def kabsch_umeyama(
 
     P = P.reshape(-1, N, D)
     Q = Q.reshape(-1, N, D)
-
-    _B = P.shape[0]
 
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
