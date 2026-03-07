@@ -152,7 +152,8 @@ class TestCrossAlgorithmConsistency:
     @given(point_clouds_3d())
     def test_kabsch_and_horn_agree_on_rotation_3d(self, P_np: np.ndarray) -> None:
         # Rotation is unique only when point cloud spans all 3 dimensions
-        assume(np.linalg.matrix_rank(P_np - P_np.mean(0)) == 3)
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         Q_np = P_np + np.random.default_rng(0).random((1, 3)) * 0.5
         R_k, t_k, rmsd_k = kabsch_np.kabsch(P_np, Q_np)
         R_h, t_h, rmsd_h = kabsch_np.horn(P_np, Q_np)
@@ -164,7 +165,8 @@ class TestCrossAlgorithmConsistency:
     @given(point_clouds_3d())
     def test_umeyama_and_horn_with_scale_agree_3d(self, P_np: np.ndarray) -> None:
         # Rotation is unique only when point cloud spans all 3 dimensions
-        assume(np.linalg.matrix_rank(P_np - P_np.mean(0)) == 3)
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         Q_np = P_np + np.random.default_rng(0).random((1, 3)) * 0.5
         R_u, t_u, c_u, rmsd_u = kabsch_np.kabsch_umeyama(P_np, Q_np)
         R_h, t_h, c_h, rmsd_h = kabsch_np.horn_with_scale(P_np, Q_np)
@@ -178,7 +180,8 @@ class TestCrossAlgorithmConsistency:
     def test_kabsch_recovers_known_rotation(self, aligned: tuple) -> None:
         P_np, R_true, t_true, Q_np = aligned
         # Rotation is recoverable only when point cloud spans all 3 dimensions
-        assume(np.linalg.matrix_rank(P_np - P_np.mean(0)) == 3)
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         R, t, rmsd = kabsch_np.kabsch(P_np, Q_np)
         np.testing.assert_allclose(R, R_true, atol=1e-6)
         np.testing.assert_allclose(t, t_true, atol=1e-6)
