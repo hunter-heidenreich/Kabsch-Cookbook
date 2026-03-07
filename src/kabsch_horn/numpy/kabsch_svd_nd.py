@@ -111,8 +111,6 @@ def kabsch_umeyama(
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
 
-    _B = P.shape[0]
-
     # Compute centroids
     centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
     centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1xD
