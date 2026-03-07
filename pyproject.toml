@@ -40,10 +40,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/heidenreich/Kabsch-Cookbook"
-Repository = "https://github.com/heidenreich/Kabsch-Cookbook"
-Issues = "https://github.com/heidenreich/Kabsch-Cookbook/issues"
-Changelog = "https://github.com/heidenreich/Kabsch-Cookbook/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hunter-heidenreich/Kabsch-Cookbook"
+Repository = "https://github.com/hunter-heidenreich/Kabsch-Cookbook"
+Issues = "https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues"
+Changelog = "https://github.com/hunter-heidenreich/Kabsch-Cookbook/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
