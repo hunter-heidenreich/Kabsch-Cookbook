@@ -3,16 +3,23 @@ from typing import ClassVar, Generic, TypeVar
 
 import jax
 import jax.numpy as jnp
-import mlx.core as mx
 import numpy as np
 import pytest
 import tensorflow as tf
 import torch
 
 from kabsch_horn import jax as kabsch_jax
-from kabsch_horn import mlx as kabsch_mlx
 from kabsch_horn import pytorch as kabsch_torch
 from kabsch_horn import tensorflow as kabsch_tf
+
+try:
+    import mlx.core as mx
+
+    from kabsch_horn import mlx as kabsch_mlx
+
+    _MLX_AVAILABLE = True
+except ImportError:
+    _MLX_AVAILABLE = False
 
 T = TypeVar("T")
 
@@ -313,104 +320,108 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
         return tf.errors.InvalidArgumentError
 
 
-class MLXAdapter(FrameworkAdapter[mx.array]):
-    """
-    MLX Adapter.
-    For float64, forces ops onto the CPU because
-    Apple Silicon GPUs don't support true float64.
-    For float32, uses GPU acceleration.
-    """
+if _MLX_AVAILABLE:
 
-    _DTYPE_MAP: ClassVar[dict[str, mx.Dtype]] = {
-        "float16": mx.float16,
-        "bfloat16": mx.bfloat16,
-        "float32": mx.float32,
-        "float64": mx.float64,
-    }
+    class MLXAdapter(FrameworkAdapter[mx.array]):
+        """
+        MLX Adapter.
+        For float64, forces ops onto the CPU because
+        Apple Silicon GPUs don't support true float64.
+        For float32, uses GPU acceleration.
+        """
 
-    def _set_device(self) -> None:
-        if self.precision == "float64":
-            mx.set_default_device(mx.cpu)
-        else:
-            mx.set_default_device(mx.gpu)
+        _DTYPE_MAP: ClassVar[dict[str, mx.Dtype]] = {
+            "float16": mx.float16,
+            "bfloat16": mx.bfloat16,
+            "float32": mx.float32,
+            "float64": mx.float64,
+        }
 
-    def supports_dim(self, dim: int) -> bool:
-        # MLX implementation hardcodes 3x3 determinant correction
-        return dim == 3
-
-    def convert_in(self, arr: np.ndarray) -> mx.array:
-        self._set_device()
-        dtype = self._DTYPE_MAP[self.precision]
-        return mx.array(arr, dtype=dtype)
-
-    def convert_out(self, obj: mx.array) -> np.ndarray:
-        if obj.dtype in (mx.bfloat16, mx.float16):
-            obj = obj.astype(mx.float32)
-        ret = np.array(obj)
-        # bfloat16 numpy arrays come out as mysterious void types sometimes
-        # upcasting helps determinant test stay happy
-        if self.precision in ("float16", "bfloat16") or ret.dtype in (np.float16,):
-            ret = ret.astype(np.float32)
-        return ret
-
-    def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        self._set_device()
-        return kabsch_mlx.kabsch(P, Q)
-
-    def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        self._set_device()
-        return kabsch_mlx.kabsch_umeyama(P, Q)
-
-    def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        self._set_device()
-        return kabsch_mlx.horn(P, Q)
-
-    def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-        self._set_device()
-        return kabsch_mlx.horn_with_scale(P, Q)
-
-    def is_nan(self, tensor: mx.array) -> bool:
-        self._set_device()
-        return mx.any(mx.isnan(tensor)).item()
-
-    def get_grad(
-        self,
-        P: mx.array,
-        Q: mx.array,
-        func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
-        seed: int | None = 42,
-        wrt: str = "P",
-    ) -> np.ndarray:
-        self._set_device()
-
-        def loss_fn(P_inner, Q_inner):
-            res = func(P_inner, Q_inner)
-            if seed is not None:
-                rng = np.random.RandomState(seed)
-                dtype = self._DTYPE_MAP[self.precision]
-                weights = [
-                    mx.array(rng.normal(size=tensor.shape), dtype=dtype)
-                    for tensor in res
-                ]
-                return sum(
-                    [
-                        mx.sum(tensor * weight)
-                        for tensor, weight in zip(res, weights, strict=False)
-                    ]
-                )
+        def _set_device(self) -> None:
+            if self.precision == "float64":
+                mx.set_default_device(mx.cpu)
             else:
-                return sum([mx.sum(tensor) for tensor in res])
+                mx.set_default_device(mx.gpu)
 
-        arg_idx = 0 if wrt == "P" else 1
-        grad_fn = mx.grad(loss_fn, argnums=arg_idx)
-        grad = grad_fn(P, Q)
-        if grad.dtype in (mx.bfloat16, mx.float16):
-            grad = grad.astype(mx.float32)
-        return np.array(grad)
+        def supports_dim(self, dim: int) -> bool:
+            # MLX implementation hardcodes 3x3 determinant correction
+            return dim == 3
 
-    @property
-    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
-        return ValueError
+        def convert_in(self, arr: np.ndarray) -> mx.array:
+            self._set_device()
+            dtype = self._DTYPE_MAP[self.precision]
+            return mx.array(arr, dtype=dtype)
+
+        def convert_out(self, obj: mx.array) -> np.ndarray:
+            if obj.dtype in (mx.bfloat16, mx.float16):
+                obj = obj.astype(mx.float32)
+            ret = np.array(obj)
+            # bfloat16 numpy arrays come out as mysterious void types sometimes
+            # upcasting helps determinant test stay happy
+            if self.precision in ("float16", "bfloat16") or ret.dtype in (np.float16,):
+                ret = ret.astype(np.float32)
+            return ret
+
+        def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
+            self._set_device()
+            return kabsch_mlx.kabsch(P, Q)
+
+        def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
+            self._set_device()
+            return kabsch_mlx.kabsch_umeyama(P, Q)
+
+        def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
+            self._set_device()
+            return kabsch_mlx.horn(P, Q)
+
+        def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
+            self._set_device()
+            return kabsch_mlx.horn_with_scale(P, Q)
+
+        def is_nan(self, tensor: mx.array) -> bool:
+            self._set_device()
+            return mx.any(mx.isnan(tensor)).item()
+
+        def get_grad(
+            self,
+            P: mx.array,
+            Q: mx.array,
+            func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
+            seed: int | None = 42,
+            wrt: str = "P",
+        ) -> np.ndarray:
+            self._set_device()
+
+            def loss_fn(P_inner, Q_inner):
+                res = func(P_inner, Q_inner)
+                if seed is not None:
+                    rng = np.random.RandomState(seed)
+                    dtype = self._DTYPE_MAP[self.precision]
+                    weights = [
+                        mx.array(rng.normal(size=tensor.shape), dtype=dtype)
+                        for tensor in res
+                    ]
+                    return sum(
+                        [
+                            mx.sum(tensor * weight)
+                            for tensor, weight in zip(res, weights, strict=False)
+                        ]
+                    )
+                else:
+                    return sum([mx.sum(tensor) for tensor in res])
+
+            arg_idx = 0 if wrt == "P" else 1
+            grad_fn = mx.grad(loss_fn, argnums=arg_idx)
+            grad = grad_fn(P, Q)
+            if grad.dtype in (mx.bfloat16, mx.float16):
+                grad = grad.astype(mx.float32)
+            return np.array(grad)
+
+        @property
+        def mismatch_exception_type(
+            self,
+        ) -> type[Exception] | tuple[type[Exception], ...]:
+            return ValueError
 
 
 frameworks = [
@@ -426,8 +437,14 @@ frameworks = [
     pytest.param(TFAdapter("float16"), id="TensorFlow-Float16"),
     pytest.param(TFAdapter("float32"), id="TensorFlow-Float32"),
     pytest.param(TFAdapter("float64"), id="TensorFlow-Float64"),
-    pytest.param(MLXAdapter("bfloat16"), id="MLX-BFloat16-GPU"),
-    pytest.param(MLXAdapter("float16"), id="MLX-Float16-GPU"),
-    pytest.param(MLXAdapter("float64"), id="MLX-Float64-CPU"),
-    pytest.param(MLXAdapter("float32"), id="MLX-Float32-GPU"),
+    *(
+        [
+            pytest.param(MLXAdapter("bfloat16"), id="MLX-BFloat16-GPU"),
+            pytest.param(MLXAdapter("float16"), id="MLX-Float16-GPU"),
+            pytest.param(MLXAdapter("float64"), id="MLX-Float64-CPU"),
+            pytest.param(MLXAdapter("float32"), id="MLX-Float32-GPU"),
+        ]
+        if _MLX_AVAILABLE
+        else []
+    ),
 ]

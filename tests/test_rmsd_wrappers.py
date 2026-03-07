@@ -27,7 +27,6 @@ class TestKabschRmsdWrappers:
         Q = adapter.convert_in(Q_np)
 
         from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import mlx as kabsch_mlx
         from kabsch_horn import pytorch as kabsch_torch
         from kabsch_horn import tensorflow as kabsch_tf
 
@@ -42,6 +41,8 @@ class TestKabschRmsdWrappers:
             rmsd_wrapper = float(adapter.convert_out(kabsch_tf.kabsch_rmsd(P, Q)))
             rmsd_full = float(adapter.convert_out(kabsch_tf.kabsch(P, Q)[2]))
         elif adapter_cls == "MLXAdapter":
+            from kabsch_horn import mlx as kabsch_mlx
+
             rmsd_wrapper = float(adapter.convert_out(kabsch_mlx.kabsch_rmsd(P, Q)))
             rmsd_full = float(adapter.convert_out(kabsch_mlx.kabsch(P, Q)[2]))
         else:
@@ -67,7 +68,6 @@ class TestKabschRmsdWrappers:
         Q = adapter.convert_in(Q_np)
 
         from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import mlx as kabsch_mlx
         from kabsch_horn import pytorch as kabsch_torch
         from kabsch_horn import tensorflow as kabsch_tf
 
@@ -82,6 +82,8 @@ class TestKabschRmsdWrappers:
             rmsd_w = float(adapter.convert_out(kabsch_tf.kabsch_umeyama_rmsd(P, Q)))
             rmsd_f = float(adapter.convert_out(kabsch_tf.kabsch_umeyama(P, Q)[3]))
         elif adapter_cls == "MLXAdapter":
+            from kabsch_horn import mlx as kabsch_mlx
+
             rmsd_w = float(adapter.convert_out(kabsch_mlx.kabsch_umeyama_rmsd(P, Q)))
             rmsd_f = float(adapter.convert_out(kabsch_mlx.kabsch_umeyama(P, Q)[3]))
         else:
@@ -118,7 +120,6 @@ class TestKabschRmsdWrappers:
         Q = adapter.convert_in(Q_np)
 
         from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import mlx as kabsch_mlx
         from kabsch_horn import pytorch as kabsch_torch
         from kabsch_horn import tensorflow as kabsch_tf
 
@@ -139,6 +140,8 @@ class TestKabschRmsdWrappers:
                 "kabsch_umeyama_rmsd": kabsch_tf.kabsch_umeyama_rmsd,
             }
         elif adapter_cls == "MLXAdapter":
+            from kabsch_horn import mlx as kabsch_mlx
+
             func_map = {
                 "kabsch_rmsd": kabsch_mlx.kabsch_rmsd,
                 "kabsch_umeyama_rmsd": kabsch_mlx.kabsch_umeyama_rmsd,
@@ -168,7 +171,6 @@ class TestKabschRmsdWrappers:
         Q = adapter.convert_in(Q_np)
 
         from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import mlx as kabsch_mlx
         from kabsch_horn import pytorch as kabsch_torch
         from kabsch_horn import tensorflow as kabsch_tf
 
@@ -189,6 +191,8 @@ class TestKabschRmsdWrappers:
                 "kabsch_umeyama_rmsd": kabsch_tf.kabsch_umeyama_rmsd,
             }
         elif adapter_cls == "MLXAdapter":
+            from kabsch_horn import mlx as kabsch_mlx
+
             func_map = {
                 "kabsch_rmsd": kabsch_mlx.kabsch_rmsd,
                 "kabsch_umeyama_rmsd": kabsch_mlx.kabsch_umeyama_rmsd,
