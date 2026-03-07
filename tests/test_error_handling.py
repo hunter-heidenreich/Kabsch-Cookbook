@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
@@ -75,7 +77,7 @@ class TestErrorHandling:
         that raises on NaN input would be a real test failure here.
         MLX is excluded because its linalg.svd fatally aborts the process on NaN.
         """
-        if adapter.__class__.__name__ == "MLXAdapter":
+        if not adapter.supports_nan_input:
             pytest.skip(
                 "MLX linalg.svd currently throws a fatal hardware Abort on NaNs "
                 "which aborts pytest."
@@ -83,11 +85,9 @@ class TestErrorHandling:
 
         dim = 3
 
-        import numpy as np
-
-        np.random.seed(42)
-        P_np = np.random.rand(5, dim).astype(np.float64)
-        Q_np = np.random.rand(5, dim).astype(np.float64)
+        rng = np.random.default_rng(42)
+        P_np = rng.random((5, dim))
+        Q_np = rng.random((5, dim))
 
         # Inject NaN
         P_np[0, 0] = np.nan
@@ -101,8 +101,6 @@ class TestErrorHandling:
 
         for tensor in res:
             if isinstance(tensor, float):
-                import math
-
                 assert math.isnan(tensor) or adapter.is_nan(tensor), (
                     "Expected NaN to propagate"
                 )
