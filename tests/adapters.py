@@ -71,6 +71,12 @@ class FrameworkAdapter(Generic[T]):
     def horn_with_scale(self, P: T, Q: T) -> tuple[T, ...]:
         raise NotImplementedError
 
+    def kabsch_rmsd(self, P: T, Q: T) -> T:
+        raise NotImplementedError
+
+    def kabsch_umeyama_rmsd(self, P: T, Q: T) -> T:
+        raise NotImplementedError
+
     def get_transform_func(self, algo: str) -> Callable[[T, T], tuple[T, ...]]:
         """Returns the corresponding transformation function for the given algorithm."""
         if algo == "kabsch":
@@ -136,6 +142,12 @@ class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
         self, P: torch.Tensor, Q: torch.Tensor
     ) -> tuple[torch.Tensor, ...]:
         return kabsch_torch.horn_with_scale(P, Q)
+
+    def kabsch_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+        return kabsch_torch.kabsch_rmsd(P, Q)
+
+    def kabsch_umeyama_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+        return kabsch_torch.kabsch_umeyama_rmsd(P, Q)
 
     def is_nan(self, tensor: torch.Tensor) -> bool:
         return torch.isnan(tensor).any().item()
@@ -204,6 +216,12 @@ class JAXAdapter(FrameworkAdapter[jax.Array]):
 
     def horn_with_scale(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
         return kabsch_jax.horn_with_scale(P, Q)
+
+    def kabsch_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
+        return kabsch_jax.kabsch_rmsd(P, Q)
+
+    def kabsch_umeyama_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
+        return kabsch_jax.kabsch_umeyama_rmsd(P, Q)
 
     def is_nan(self, tensor: jax.Array) -> bool:
         return jnp.isnan(tensor).any()
@@ -280,6 +298,16 @@ class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
         self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
     ) -> tuple[tf.Tensor | tf.Variable, ...]:
         return kabsch_tf.horn_with_scale(P, Q)
+
+    def kabsch_rmsd(
+        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+    ) -> tf.Tensor | tf.Variable:
+        return kabsch_tf.kabsch_rmsd(P, Q)
+
+    def kabsch_umeyama_rmsd(
+        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+    ) -> tf.Tensor | tf.Variable:
+        return kabsch_tf.kabsch_umeyama_rmsd(P, Q)
 
     def is_nan(self, tensor: tf.Tensor | tf.Variable) -> bool:
         return tf.math.is_nan(tensor).numpy().any()
@@ -377,6 +405,14 @@ if _MLX_AVAILABLE:
         def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
             self._set_device()
             return kabsch_mlx.horn_with_scale(P, Q)
+
+        def kabsch_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
+            self._set_device()
+            return kabsch_mlx.kabsch_rmsd(P, Q)
+
+        def kabsch_umeyama_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
+            self._set_device()
+            return kabsch_mlx.kabsch_umeyama_rmsd(P, Q)
 
         def is_nan(self, tensor: mx.array) -> bool:
             self._set_device()
