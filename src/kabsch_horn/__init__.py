@@ -1,11 +1,13 @@
 """Kabsch-Umeyama Algorithm Implementation across Frameworks."""
 
-from .numpy.horn_quat_3d import horn as horn_numpy
-from .numpy.horn_quat_3d import horn_with_scale as horn_with_scale_numpy
-from .numpy.kabsch_svd_nd import kabsch as kabsch_numpy
-from .numpy.kabsch_svd_nd import kabsch_umeyama as kabsch_umeyama_numpy
-
 # Attempt to load backends, fallback silently if not present
+try:
+    from .numpy.horn_quat_3d import horn as horn_numpy
+    from .numpy.horn_quat_3d import horn_with_scale as horn_with_scale_numpy
+    from .numpy.kabsch_svd_nd import kabsch as kabsch_numpy
+    from .numpy.kabsch_svd_nd import kabsch_umeyama as kabsch_umeyama_numpy
+except ImportError:
+    pass
 try:
     from .pytorch.horn_quat_3d import horn as horn_torch
     from .pytorch.horn_quat_3d import horn_with_scale as horn_with_scale_torch
