@@ -13,17 +13,12 @@ from strategies import (
 from kabsch_horn import numpy as kabsch_np
 
 _FRAMEWORK_SETTINGS = settings(
-    max_examples=30,
+    max_examples=50,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
-_NUMPY_SETTINGS_50 = settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.too_slow],
-    deadline=None,
-)
-_NUMPY_SETTINGS_30 = settings(
-    max_examples=30,
+_NUMPY_SETTINGS = settings(
+    max_examples=100,
     suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
@@ -144,7 +139,7 @@ class TestRotationInvariants:
 class TestCrossAlgorithmConsistency:
     """Numpy-only cross-algorithm consistency checks (no framework overhead)."""
 
-    @_NUMPY_SETTINGS_50
+    @_NUMPY_SETTINGS
     @given(point_clouds_3d())
     def test_kabsch_and_horn_agree_on_rotation_3d(self, P_np: np.ndarray) -> None:
         # Rotation is unique only when point cloud spans all 3 dimensions
@@ -157,7 +152,7 @@ class TestCrossAlgorithmConsistency:
         np.testing.assert_allclose(t_k, t_h, atol=1e-5)
         np.testing.assert_allclose(float(rmsd_k), float(rmsd_h), atol=1e-5)
 
-    @_NUMPY_SETTINGS_50
+    @_NUMPY_SETTINGS
     @given(point_clouds_3d())
     def test_umeyama_and_horn_with_scale_agree_3d(self, P_np: np.ndarray) -> None:
         # Rotation is unique only when point cloud spans all 3 dimensions
@@ -171,7 +166,7 @@ class TestCrossAlgorithmConsistency:
         np.testing.assert_allclose(float(c_u), float(c_h), atol=1e-5)
         np.testing.assert_allclose(float(rmsd_u), float(rmsd_h), atol=1e-5)
 
-    @_NUMPY_SETTINGS_50
+    @_NUMPY_SETTINGS
     @given(aligned_pair_3d())
     def test_kabsch_recovers_known_rotation(self, aligned: tuple) -> None:
         P_np, R_true, t_true, Q_np = aligned
@@ -187,7 +182,7 @@ class TestCrossAlgorithmConsistency:
 class TestAlignmentOptimality:
     """Verify that the recovered rotation is locally optimal (numpy-only)."""
 
-    @_NUMPY_SETTINGS_30
+    @_NUMPY_SETTINGS
     @given(point_clouds_3d())
     def test_no_rotation_achieves_lower_rmsd(self, P_np: np.ndarray) -> None:
         rng = np.random.default_rng(7)
