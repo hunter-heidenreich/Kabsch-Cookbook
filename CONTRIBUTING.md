@@ -49,8 +49,12 @@ uv run pytest tests/ -k "test_identity_mapping"
 
 ## Releasing
 
-1. Update `CHANGELOG.md`: add a new `## [X.Y.Z] - YYYY-MM-DD` section with all changes.
-2. Bump the version in `pyproject.toml` to match.
-3. Merge `dev` into `main`.
-4. Push a tag from `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-5. The `release.yml` workflow runs automatically and creates the GitHub release.
+Releases are automated via [release-please](https://github.com/googleapis/release-please).
+
+1. Merge `dev` into `main` using conventional commits (`feat:`, `fix:`, `ci:`, etc.).
+2. `release-please` opens or updates a Release PR on `main` automatically, bumping
+   `pyproject.toml` and generating `CHANGELOG.md` entries from the commit history.
+3. When you are ready to cut a release, merge the Release PR.
+4. `release-please` creates the tag and GitHub release automatically.
+
+No manual version bumping or tagging required.
