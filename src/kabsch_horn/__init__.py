@@ -1,6 +1,13 @@
 """Kabsch-Umeyama Algorithm Implementation across Frameworks."""
 
-__all__: list[str] = []
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("kabsch-horn-cookbook")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
+__all__: list[str] = ["__version__"]
 
 # Attempt to load backends, fallback silently if not present
 try:
