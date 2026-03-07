@@ -41,11 +41,17 @@ def _reference_horn_3d(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
     return result[0].as_matrix()
 
 
+_SEEDS = [42, 123, 7, 99, 314]
+
+
 class TestReferenceValidation:
+    @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("adapter", frameworks)
-    def test_kabsch_matches_rmsd_package(self, adapter: FrameworkAdapter) -> None:
-        """Our kabsch rotation matches the rmsd package (seed=42, 3D)."""
-        rng = np.random.default_rng(42)
+    def test_kabsch_matches_rmsd_package(
+        self, adapter: FrameworkAdapter, seed: int
+    ) -> None:
+        """Our kabsch rotation matches the rmsd package across multiple seeds."""
+        rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
         Q_np = rng.random((20, 3))
 
@@ -58,10 +64,11 @@ class TestReferenceValidation:
 
         np.testing.assert_allclose(R_ours, R_ref, atol=adapter.atol * 10)
 
+    @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("adapter", frameworks)
-    def test_horn_matches_scipy(self, adapter: FrameworkAdapter) -> None:
-        """Our horn rotation matches scipy Rotation.align_vectors (seed=42, 3D)."""
-        rng = np.random.default_rng(42)
+    def test_horn_matches_scipy(self, adapter: FrameworkAdapter, seed: int) -> None:
+        """Our horn rotation matches scipy Rotation.align_vectors across seeds."""
+        rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
         Q_np = rng.random((20, 3))
 
@@ -74,9 +81,10 @@ class TestReferenceValidation:
 
         np.testing.assert_allclose(R_ours, R_ref, atol=adapter.atol * 10)
 
-    def test_umeyama_rotation_matches_rmsd_reference(self) -> None:
-        """Umeyama rotation component matches rmsd kabsch rotation (numpy, seed=123)."""
-        rng = np.random.default_rng(123)
+    @pytest.mark.parametrize("seed", _SEEDS)
+    def test_umeyama_rotation_matches_rmsd_reference(self, seed: int) -> None:
+        """Umeyama rotation component matches rmsd kabsch rotation across seeds."""
+        rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
         Q_np = rng.random((20, 3))
 
@@ -85,9 +93,10 @@ class TestReferenceValidation:
 
         np.testing.assert_allclose(R_ours, R_ref, atol=1e-5)
 
-    def test_rmsd_value_matches_rmsd_package(self) -> None:
-        """Our kabsch RMSD scalar matches rmsd.kabsch_rmsd (numpy, seed=42)."""
-        rng = np.random.default_rng(42)
+    @pytest.mark.parametrize("seed", _SEEDS)
+    def test_rmsd_value_matches_rmsd_package(self, seed: int) -> None:
+        """Our kabsch RMSD scalar matches rmsd.kabsch_rmsd across multiple seeds."""
+        rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
         Q_np = rng.random((20, 3))
 
