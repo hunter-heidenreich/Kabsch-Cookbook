@@ -14,7 +14,7 @@ from kabsch_horn import numpy as kabsch_np
 
 _FRAMEWORK_SETTINGS = settings(
     max_examples=30,
-    suppress_health_check=[HealthCheck.too_slow],
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
 _NUMPY_SETTINGS_50 = settings(
@@ -37,8 +37,7 @@ class TestRotationInvariants:
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            return
+        assume(adapter.supports_dim(dim))
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
@@ -66,8 +65,7 @@ class TestRotationInvariants:
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            return
+        assume(adapter.supports_dim(dim))
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
@@ -103,8 +101,7 @@ class TestRotationInvariants:
     ) -> None:
         P_np, algo = input_and_algo
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            return
+        assume(adapter.supports_dim(dim))
         if algo in ("horn", "horn_with_scale") and dim != 3:
             return
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
@@ -122,8 +119,7 @@ class TestRotationInvariants:
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
         dim = P_np.shape[-1]
-        if not adapter.supports_dim(dim):
-            return
+        assume(adapter.supports_dim(dim))
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
@@ -224,8 +220,7 @@ class TestKabschRecoveryND:
         self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
         P_np, R_true, t_true, Q_np, dim = aligned
-        if not adapter.supports_dim(dim):
-            return
+        assume(adapter.supports_dim(dim))
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
         assume(sv[-1] > 1e-3)
         P = adapter.convert_in(P_np)
@@ -246,8 +241,7 @@ class TestKabschRecoveryND:
         self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
         P_np, R_true, t_true, Q_np, dim = aligned
-        if not adapter.supports_dim(dim):
-            return
+        assume(adapter.supports_dim(dim))
         P_c = P_np - P_np.mean(0)
         # Rotation and scale are recoverable only when the cloud spans all dimensions
         # with sufficient spread; use a strict singular-value threshold
