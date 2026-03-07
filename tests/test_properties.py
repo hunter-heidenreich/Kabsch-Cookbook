@@ -3,7 +3,12 @@ import pytest
 from adapters import FrameworkAdapter, frameworks
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
-from strategies import aligned_pair_3d, point_clouds_3d, point_clouds_nd
+from strategies import (
+    aligned_pair_3d,
+    aligned_pair_nd,
+    point_clouds_3d,
+    point_clouds_nd,
+)
 
 from kabsch_horn import numpy as kabsch_np
 
@@ -204,3 +209,57 @@ class TestAlignmentOptimality:
         )
 
         assert float(rmsd_opt) <= rmsd_perturbed + 1e-6
+
+
+class TestKabschRecoveryND:
+    """Verify that kabsch/umeyama recover a known rotation across all frameworks."""
+
+    @_FRAMEWORK_SETTINGS
+    @given(aligned_pair_nd())
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_kabsch_recovers_known_rotation_nd(
+        self, adapter: FrameworkAdapter, aligned: tuple
+    ) -> None:
+        P_np, R_true, t_true, Q_np, dim = aligned
+        if not adapter.supports_dim(dim):
+            return
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, t, rmsd = adapter.kabsch(P, Q)
+        R = adapter.convert_out(R)
+        t = adapter.convert_out(t)
+        np.testing.assert_allclose(R, R_true, atol=adapter.atol * 100)
+        np.testing.assert_allclose(t, t_true, atol=adapter.atol * 100)
+        np.testing.assert_allclose(
+            float(adapter.convert_out(rmsd)), 0.0, atol=adapter.atol * 100
+        )
+
+    @_FRAMEWORK_SETTINGS
+    @given(aligned_pair_nd())
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_kabsch_umeyama_recovers_known_rotation_nd(
+        self, adapter: FrameworkAdapter, aligned: tuple
+    ) -> None:
+        P_np, R_true, t_true, Q_np, dim = aligned
+        if not adapter.supports_dim(dim):
+            return
+        P_c = P_np - P_np.mean(0)
+        # Rotation and scale are recoverable only when the cloud spans all dimensions
+        # with sufficient spread; use a strict singular-value threshold
+        sv = np.linalg.svd(P_c, compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, t, c, rmsd = adapter.kabsch_umeyama(P, Q)
+        R = adapter.convert_out(R)
+        t = adapter.convert_out(t)
+        np.testing.assert_allclose(R, R_true, atol=adapter.atol * 100)
+        np.testing.assert_allclose(t, t_true, atol=adapter.atol * 100)
+        np.testing.assert_allclose(
+            float(adapter.convert_out(c)), 1.0, atol=adapter.atol * 100
+        )
+        np.testing.assert_allclose(
+            float(adapter.convert_out(rmsd)), 0.0, atol=adapter.atol * 100
+        )
