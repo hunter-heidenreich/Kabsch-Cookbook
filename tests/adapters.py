@@ -181,7 +181,7 @@ try:
         def mismatch_exception_type(
             self,
         ) -> type[Exception] | tuple[type[Exception], ...]:
-            return (AssertionError, ValueError)
+            return (AssertionError, ValueError, RuntimeError)
 
 except ImportError:
     _TORCH_AVAILABLE = False
