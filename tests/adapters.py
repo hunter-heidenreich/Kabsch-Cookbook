@@ -36,6 +36,11 @@ class FrameworkAdapter(Generic[T]):
         """Indicates whether this adapter supports N-D inputs."""
         return True
 
+    @property
+    def supports_nan_input(self) -> bool:
+        """Returns True if the framework propagates NaN through SVD without crashing."""
+        return True
+
     def convert_in(self, arr: np.ndarray) -> T:
         raise NotImplementedError
 
@@ -399,6 +404,11 @@ try:
         def supports_dim(self, dim: int) -> bool:
             # MLX implementation hardcodes 3x3 determinant correction
             return dim == 3
+
+        @property
+        def supports_nan_input(self) -> bool:
+            # MLX linalg.svd fatally aborts the process on NaN inputs
+            return False
 
         def convert_in(self, arr: np.ndarray) -> mx.array:
             self._set_device()
