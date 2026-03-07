@@ -80,16 +80,6 @@ class SafeSVD(torch.autograd.Function):
         S_diag = torch.diag_embed(grad_S)
         S_mat = torch.diag_embed(S)
 
-        term = S_diag + torch.matmul(J, S_mat) + torch.matmul(S_mat, K)
-
-        # The backward needs a correct matrix application order according to the manual:
-        # dA = U @ (dS + J@S + S@K) @ V^T
-        # Wait, if Ut_dU was negated, the sign would flip.
-        # Actually PyTorch defines J as F * (U^T dU - dU^T U).
-        # But wait, we returned grad_A. SVD solves A = U S V^T.
-        # Standard rules state reverse AD rule for A = U S V^T is:
-        # dA = U @ (dS + J@S + S@K) @ V^T
-        # We might have negated F somewhere, let's just make it negative entirely:
         term = S_diag - torch.matmul(J, S_mat) - torch.matmul(S_mat, K)
 
         grad_A = torch.matmul(U, torch.matmul(term, Vh))
