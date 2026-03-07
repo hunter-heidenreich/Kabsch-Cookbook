@@ -1,25 +1,8 @@
 from collections.abc import Callable
 from typing import ClassVar, Generic, TypeVar
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
-import tensorflow as tf
-import torch
-
-from kabsch_horn import jax as kabsch_jax
-from kabsch_horn import pytorch as kabsch_torch
-from kabsch_horn import tensorflow as kabsch_tf
-
-try:
-    import mlx.core as mx
-
-    from kabsch_horn import mlx as kabsch_mlx
-
-    _MLX_AVAILABLE = True
-except ImportError:
-    _MLX_AVAILABLE = False
 
 T = TypeVar("T")
 
@@ -108,247 +91,289 @@ class FrameworkAdapter(Generic[T]):
         return Exception
 
 
-class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
-    _DTYPE_MAP: ClassVar[dict[str, torch.dtype]] = {
-        "float16": torch.float16,
-        "bfloat16": torch.bfloat16,
-        "float32": torch.float32,
-        "float64": torch.float64,
-    }
+try:
+    import torch
 
-    def convert_in(self, arr: np.ndarray) -> torch.Tensor:
-        dtype = self._DTYPE_MAP[self.precision]
-        return torch.tensor(arr, dtype=dtype, requires_grad=True)
+    from kabsch_horn import pytorch as kabsch_torch
 
-    def convert_out(self, obj: torch.Tensor) -> np.ndarray:
-        if isinstance(obj, torch.Tensor):
-            if obj.dtype in (torch.bfloat16, torch.float16):
-                obj = obj.float()
-            return obj.detach().numpy()
-        return obj
+    _TORCH_AVAILABLE = True
 
-    def kabsch(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        return kabsch_torch.kabsch(P, Q)
+    class PyTorchAdapter(FrameworkAdapter[torch.Tensor]):
+        _DTYPE_MAP: ClassVar[dict[str, torch.dtype]] = {
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+            "float64": torch.float64,
+        }
 
-    def kabsch_umeyama(
-        self, P: torch.Tensor, Q: torch.Tensor
-    ) -> tuple[torch.Tensor, ...]:
-        return kabsch_torch.kabsch_umeyama(P, Q)
-
-    def horn(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
-        return kabsch_torch.horn(P, Q)
-
-    def horn_with_scale(
-        self, P: torch.Tensor, Q: torch.Tensor
-    ) -> tuple[torch.Tensor, ...]:
-        return kabsch_torch.horn_with_scale(P, Q)
-
-    def kabsch_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-        return kabsch_torch.kabsch_rmsd(P, Q)
-
-    def kabsch_umeyama_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-        return kabsch_torch.kabsch_umeyama_rmsd(P, Q)
-
-    def is_nan(self, tensor: torch.Tensor) -> bool:
-        return torch.isnan(tensor).any().item()
-
-    def get_grad(
-        self,
-        P: torch.Tensor,
-        Q: torch.Tensor,
-        func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
-        seed: int | None = 42,
-        wrt: str = "P",
-    ) -> np.ndarray:
-        res = func(P, Q)
-        if seed is not None:
-            rng = np.random.RandomState(seed)
+        def convert_in(self, arr: np.ndarray) -> torch.Tensor:
             dtype = self._DTYPE_MAP[self.precision]
-            weights = [
-                torch.tensor(rng.normal(size=tensor.shape), dtype=dtype)
-                for tensor in res
-            ]
-            loss = sum(
-                (tensor * weight).sum()
-                for tensor, weight in zip(res, weights, strict=False)
-            )
-        else:
-            loss = sum([tensor.sum() for tensor in res])
-        loss.backward()
+            return torch.tensor(arr, dtype=dtype, requires_grad=True)
 
-        grad = P.grad if wrt == "P" else Q.grad
-        if grad is not None and grad.dtype in (torch.bfloat16, torch.float16):
-            grad = grad.float()
+        def convert_out(self, obj: torch.Tensor) -> np.ndarray:
+            if isinstance(obj, torch.Tensor):
+                if obj.dtype in (torch.bfloat16, torch.float16):
+                    obj = obj.float()
+                return obj.detach().numpy()
+            return obj
 
-        return grad.numpy()
+        def kabsch(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.kabsch(P, Q)
 
-    @property
-    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
-        return (AssertionError, ValueError)
+        def kabsch_umeyama(
+            self, P: torch.Tensor, Q: torch.Tensor
+        ) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.kabsch_umeyama(P, Q)
 
+        def horn(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.horn(P, Q)
 
-class JAXAdapter(FrameworkAdapter[jax.Array]):
-    _DTYPE_MAP: ClassVar[dict[str, jnp.dtype]] = {
-        "float16": jnp.float16,
-        "bfloat16": jnp.bfloat16,
-        "float32": jnp.float32,
-        "float64": jnp.float64,
-    }
+        def horn_with_scale(
+            self, P: torch.Tensor, Q: torch.Tensor
+        ) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.horn_with_scale(P, Q)
 
-    def convert_in(self, arr: np.ndarray) -> jax.Array:
-        dtype = self._DTYPE_MAP[self.precision]
-        return jnp.array(arr, dtype=dtype)
+        def kabsch_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+            return kabsch_torch.kabsch_rmsd(P, Q)
 
-    def convert_out(self, obj: jax.Array) -> np.ndarray:
-        ret = np.array(obj)
-        if ret.dtype in (np.float16,):
-            ret = ret.astype(np.float32)
-        return ret
+        def kabsch_umeyama_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+            return kabsch_torch.kabsch_umeyama_rmsd(P, Q)
 
-    def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-        return kabsch_jax.kabsch(P, Q)
+        def is_nan(self, tensor: torch.Tensor) -> bool:
+            return torch.isnan(tensor).any().item()
 
-    def kabsch_umeyama(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-        return kabsch_jax.kabsch_umeyama(P, Q)
-
-    def horn(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-        return kabsch_jax.horn(P, Q)
-
-    def horn_with_scale(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-        return kabsch_jax.horn_with_scale(P, Q)
-
-    def kabsch_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
-        return kabsch_jax.kabsch_rmsd(P, Q)
-
-    def kabsch_umeyama_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
-        return kabsch_jax.kabsch_umeyama_rmsd(P, Q)
-
-    def is_nan(self, tensor: jax.Array) -> bool:
-        return jnp.isnan(tensor).any()
-
-    def get_grad(
-        self,
-        P: jax.Array,
-        Q: jax.Array,
-        func: Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]],
-        seed: int | None = 42,
-        wrt: str = "P",
-    ) -> np.ndarray:
-        def loss_fn(P_inner, Q_inner):
-            res = func(P_inner, Q_inner)
-            if seed is not None:
-                rng = np.random.RandomState(seed)
-                dtype = self._DTYPE_MAP[self.precision]
-                weights = [
-                    jnp.array(rng.normal(size=tensor.shape), dtype=dtype)
-                    for tensor in res
-                ]
-                return sum(
-                    [
-                        jnp.sum(tensor * weight)
-                        for tensor, weight in zip(res, weights, strict=False)
-                    ]
-                )
-            else:
-                return sum([jnp.sum(tensor) for tensor in res])
-
-        arg_idx = 0 if wrt == "P" else 1
-        grad_fn = jax.grad(loss_fn, argnums=arg_idx)
-        return np.array(grad_fn(P, Q))
-
-    @property
-    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
-        return (TypeError, ValueError)
-
-
-class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
-    _DTYPE_MAP: ClassVar[dict[str, tf.DType]] = {
-        "float16": tf.float16,
-        "bfloat16": tf.bfloat16,
-        "float32": tf.float32,
-        "float64": tf.float64,
-    }
-
-    def convert_in(self, arr: np.ndarray) -> tf.Tensor | tf.Variable:
-        dtype = self._DTYPE_MAP[self.precision]
-        return tf.Variable(arr, dtype=dtype)
-
-    def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
-        ret = obj.numpy()
-        if ret.dtype in (np.float16,):
-            ret = ret.astype(np.float32)
-        return ret
-
-    def kabsch(
-        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
-    ) -> tuple[tf.Tensor | tf.Variable, ...]:
-        return kabsch_tf.kabsch(P, Q)
-
-    def kabsch_umeyama(
-        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
-    ) -> tuple[tf.Tensor | tf.Variable, ...]:
-        return kabsch_tf.kabsch_umeyama(P, Q)
-
-    def horn(
-        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
-    ) -> tuple[tf.Tensor | tf.Variable, ...]:
-        return kabsch_tf.horn(P, Q)
-
-    def horn_with_scale(
-        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
-    ) -> tuple[tf.Tensor | tf.Variable, ...]:
-        return kabsch_tf.horn_with_scale(P, Q)
-
-    def kabsch_rmsd(
-        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
-    ) -> tf.Tensor | tf.Variable:
-        return kabsch_tf.kabsch_rmsd(P, Q)
-
-    def kabsch_umeyama_rmsd(
-        self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
-    ) -> tf.Tensor | tf.Variable:
-        return kabsch_tf.kabsch_umeyama_rmsd(P, Q)
-
-    def is_nan(self, tensor: tf.Tensor | tf.Variable) -> bool:
-        return tf.math.is_nan(tensor).numpy().any()
-
-    def get_grad(
-        self,
-        P: tf.Tensor | tf.Variable,
-        Q: tf.Tensor | tf.Variable,
-        func: Callable[
-            [tf.Tensor | tf.Variable, tf.Tensor | tf.Variable],
-            tuple[tf.Tensor | tf.Variable, ...],
-        ],
-        seed: int | None = 42,
-        wrt: str = "P",
-    ) -> np.ndarray:
-        with tf.GradientTape() as tape:
-            tape.watch([P, Q])
+        def get_grad(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
+            seed: int | None = 42,
+            wrt: str = "P",
+        ) -> np.ndarray:
             res = func(P, Q)
             if seed is not None:
                 rng = np.random.RandomState(seed)
                 dtype = self._DTYPE_MAP[self.precision]
                 weights = [
-                    tf.constant(rng.normal(size=tensor.shape), dtype=dtype)
+                    torch.tensor(rng.normal(size=tensor.shape), dtype=dtype)
                     for tensor in res
                 ]
                 loss = sum(
-                    [
-                        tf.reduce_sum(tensor * weight)
-                        for tensor, weight in zip(res, weights, strict=False)
-                    ]
+                    (tensor * weight).sum()
+                    for tensor, weight in zip(res, weights, strict=False)
                 )
             else:
-                loss = sum([tf.reduce_sum(tensor) for tensor in res])
-        return tape.gradient(loss, P if wrt == "P" else Q).numpy()
+                loss = sum([tensor.sum() for tensor in res])
+            loss.backward()
 
-    @property
-    def mismatch_exception_type(self) -> type[Exception] | tuple[type[Exception], ...]:
-        return tf.errors.InvalidArgumentError
+            grad = P.grad if wrt == "P" else Q.grad
+            if grad is not None and grad.dtype in (torch.bfloat16, torch.float16):
+                grad = grad.float()
+
+            return grad.numpy()
+
+        @property
+        def mismatch_exception_type(
+            self,
+        ) -> type[Exception] | tuple[type[Exception], ...]:
+            return (AssertionError, ValueError)
+
+except ImportError:
+    _TORCH_AVAILABLE = False
 
 
-if _MLX_AVAILABLE:
+try:
+    import jax
+    import jax.numpy as jnp
+
+    from kabsch_horn import jax as kabsch_jax
+
+    _JAX_AVAILABLE = True
+
+    class JAXAdapter(FrameworkAdapter[jax.Array]):
+        _DTYPE_MAP: ClassVar[dict[str, jnp.dtype]] = {
+            "float16": jnp.float16,
+            "bfloat16": jnp.bfloat16,
+            "float32": jnp.float32,
+            "float64": jnp.float64,
+        }
+
+        def convert_in(self, arr: np.ndarray) -> jax.Array:
+            dtype = self._DTYPE_MAP[self.precision]
+            return jnp.array(arr, dtype=dtype)
+
+        def convert_out(self, obj: jax.Array) -> np.ndarray:
+            ret = np.array(obj)
+            if ret.dtype in (np.float16,):
+                ret = ret.astype(np.float32)
+            return ret
+
+        def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
+            return kabsch_jax.kabsch(P, Q)
+
+        def kabsch_umeyama(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
+            return kabsch_jax.kabsch_umeyama(P, Q)
+
+        def horn(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
+            return kabsch_jax.horn(P, Q)
+
+        def horn_with_scale(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
+            return kabsch_jax.horn_with_scale(P, Q)
+
+        def kabsch_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
+            return kabsch_jax.kabsch_rmsd(P, Q)
+
+        def kabsch_umeyama_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
+            return kabsch_jax.kabsch_umeyama_rmsd(P, Q)
+
+        def is_nan(self, tensor: jax.Array) -> bool:
+            return jnp.isnan(tensor).any()
+
+        def get_grad(
+            self,
+            P: jax.Array,
+            Q: jax.Array,
+            func: Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]],
+            seed: int | None = 42,
+            wrt: str = "P",
+        ) -> np.ndarray:
+            def loss_fn(P_inner, Q_inner):
+                res = func(P_inner, Q_inner)
+                if seed is not None:
+                    rng = np.random.RandomState(seed)
+                    dtype = self._DTYPE_MAP[self.precision]
+                    weights = [
+                        jnp.array(rng.normal(size=tensor.shape), dtype=dtype)
+                        for tensor in res
+                    ]
+                    return sum(
+                        [
+                            jnp.sum(tensor * weight)
+                            for tensor, weight in zip(res, weights, strict=False)
+                        ]
+                    )
+                else:
+                    return sum([jnp.sum(tensor) for tensor in res])
+
+            arg_idx = 0 if wrt == "P" else 1
+            grad_fn = jax.grad(loss_fn, argnums=arg_idx)
+            return np.array(grad_fn(P, Q))
+
+        @property
+        def mismatch_exception_type(
+            self,
+        ) -> type[Exception] | tuple[type[Exception], ...]:
+            return (TypeError, ValueError)
+
+except ImportError:
+    _JAX_AVAILABLE = False
+
+
+try:
+    import tensorflow as tf
+
+    from kabsch_horn import tensorflow as kabsch_tf
+
+    _TF_AVAILABLE = True
+
+    class TFAdapter(FrameworkAdapter[tf.Tensor | tf.Variable]):
+        _DTYPE_MAP: ClassVar[dict[str, tf.DType]] = {
+            "float16": tf.float16,
+            "bfloat16": tf.bfloat16,
+            "float32": tf.float32,
+            "float64": tf.float64,
+        }
+
+        def convert_in(self, arr: np.ndarray) -> tf.Tensor | tf.Variable:
+            dtype = self._DTYPE_MAP[self.precision]
+            return tf.Variable(arr, dtype=dtype)
+
+        def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
+            ret = obj.numpy()
+            if ret.dtype in (np.float16,):
+                ret = ret.astype(np.float32)
+            return ret
+
+        def kabsch(
+            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+        ) -> tuple[tf.Tensor | tf.Variable, ...]:
+            return kabsch_tf.kabsch(P, Q)
+
+        def kabsch_umeyama(
+            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+        ) -> tuple[tf.Tensor | tf.Variable, ...]:
+            return kabsch_tf.kabsch_umeyama(P, Q)
+
+        def horn(
+            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+        ) -> tuple[tf.Tensor | tf.Variable, ...]:
+            return kabsch_tf.horn(P, Q)
+
+        def horn_with_scale(
+            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+        ) -> tuple[tf.Tensor | tf.Variable, ...]:
+            return kabsch_tf.horn_with_scale(P, Q)
+
+        def kabsch_rmsd(
+            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+        ) -> tf.Tensor | tf.Variable:
+            return kabsch_tf.kabsch_rmsd(P, Q)
+
+        def kabsch_umeyama_rmsd(
+            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+        ) -> tf.Tensor | tf.Variable:
+            return kabsch_tf.kabsch_umeyama_rmsd(P, Q)
+
+        def is_nan(self, tensor: tf.Tensor | tf.Variable) -> bool:
+            return tf.math.is_nan(tensor).numpy().any()
+
+        def get_grad(
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            func: Callable[
+                [tf.Tensor | tf.Variable, tf.Tensor | tf.Variable],
+                tuple[tf.Tensor | tf.Variable, ...],
+            ],
+            seed: int | None = 42,
+            wrt: str = "P",
+        ) -> np.ndarray:
+            with tf.GradientTape() as tape:
+                tape.watch([P, Q])
+                res = func(P, Q)
+                if seed is not None:
+                    rng = np.random.RandomState(seed)
+                    dtype = self._DTYPE_MAP[self.precision]
+                    weights = [
+                        tf.constant(rng.normal(size=tensor.shape), dtype=dtype)
+                        for tensor in res
+                    ]
+                    loss = sum(
+                        [
+                            tf.reduce_sum(tensor * weight)
+                            for tensor, weight in zip(res, weights, strict=False)
+                        ]
+                    )
+                else:
+                    loss = sum([tf.reduce_sum(tensor) for tensor in res])
+            return tape.gradient(loss, P if wrt == "P" else Q).numpy()
+
+        @property
+        def mismatch_exception_type(
+            self,
+        ) -> type[Exception] | tuple[type[Exception], ...]:
+            return tf.errors.InvalidArgumentError
+
+except ImportError:
+    _TF_AVAILABLE = False
+
+
+try:
+    import mlx.core as mx
+
+    from kabsch_horn import mlx as kabsch_mlx
+
+    _MLX_AVAILABLE = True
 
     class MLXAdapter(FrameworkAdapter[mx.array]):
         """
@@ -459,20 +484,41 @@ if _MLX_AVAILABLE:
         ) -> type[Exception] | tuple[type[Exception], ...]:
             return ValueError
 
+except ImportError:
+    _MLX_AVAILABLE = False
+
 
 frameworks = [
-    pytest.param(PyTorchAdapter("bfloat16"), id="PyTorch-BFloat16"),
-    pytest.param(PyTorchAdapter("float16"), id="PyTorch-Float16"),
-    pytest.param(PyTorchAdapter("float32"), id="PyTorch-Float32"),
-    pytest.param(PyTorchAdapter("float64"), id="PyTorch-Float64"),
-    pytest.param(JAXAdapter("bfloat16"), id="JAX-BFloat16"),
-    pytest.param(JAXAdapter("float16"), id="JAX-Float16"),
-    pytest.param(JAXAdapter("float32"), id="JAX-Float32"),
-    pytest.param(JAXAdapter("float64"), id="JAX-Float64"),
-    pytest.param(TFAdapter("bfloat16"), id="TensorFlow-BFloat16"),
-    pytest.param(TFAdapter("float16"), id="TensorFlow-Float16"),
-    pytest.param(TFAdapter("float32"), id="TensorFlow-Float32"),
-    pytest.param(TFAdapter("float64"), id="TensorFlow-Float64"),
+    *(
+        [
+            pytest.param(PyTorchAdapter("bfloat16"), id="PyTorch-BFloat16"),
+            pytest.param(PyTorchAdapter("float16"), id="PyTorch-Float16"),
+            pytest.param(PyTorchAdapter("float32"), id="PyTorch-Float32"),
+            pytest.param(PyTorchAdapter("float64"), id="PyTorch-Float64"),
+        ]
+        if _TORCH_AVAILABLE
+        else []
+    ),
+    *(
+        [
+            pytest.param(JAXAdapter("bfloat16"), id="JAX-BFloat16"),
+            pytest.param(JAXAdapter("float16"), id="JAX-Float16"),
+            pytest.param(JAXAdapter("float32"), id="JAX-Float32"),
+            pytest.param(JAXAdapter("float64"), id="JAX-Float64"),
+        ]
+        if _JAX_AVAILABLE
+        else []
+    ),
+    *(
+        [
+            pytest.param(TFAdapter("bfloat16"), id="TensorFlow-BFloat16"),
+            pytest.param(TFAdapter("float16"), id="TensorFlow-Float16"),
+            pytest.param(TFAdapter("float32"), id="TensorFlow-Float32"),
+            pytest.param(TFAdapter("float64"), id="TensorFlow-Float64"),
+        ]
+        if _TF_AVAILABLE
+        else []
+    ),
     *(
         [
             pytest.param(MLXAdapter("bfloat16"), id="MLX-BFloat16-GPU"),
