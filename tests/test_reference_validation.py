@@ -69,7 +69,7 @@ class TestReferenceValidation:
     def test_horn_matches_scipy(
         self, adapter: FrameworkAdapter, seed: int
     ) -> None:
-        """Our horn rotation matches scipy Rotation.align_vectors across multiple seeds."""
+        """Our horn rotation matches scipy Rotation.align_vectors across seeds."""
         rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
         Q_np = rng.random((20, 3))
@@ -85,7 +85,7 @@ class TestReferenceValidation:
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_umeyama_rotation_matches_rmsd_reference(self, seed: int) -> None:
-        """Umeyama rotation component matches rmsd kabsch rotation across multiple seeds."""
+        """Umeyama rotation component matches rmsd kabsch rotation across seeds."""
         rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
         Q_np = rng.random((20, 3))
