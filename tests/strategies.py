@@ -29,15 +29,10 @@ def point_clouds_3d(draw, n_points=None):
 def aligned_pair_3d(draw):
     """P + known proper rotation + translation = Q."""
     P = draw(point_clouds_3d())
-    A = draw(
-        arrays(
-            np.float64,
-            (3, 3),
-            elements=st.floats(-1, 1, allow_nan=False, allow_infinity=False),
-        )
-    )
-    # QR decomposition gives a Haar-uniform rotation; offset avoids singular A
-    Q_mat, _ = np.linalg.qr(A + np.eye(3) * 0.1)
+    seed = draw(st.integers(0, 2**31 - 1))
+    A = np.random.default_rng(seed).standard_normal((3, 3))
+    # QR of standard-normal matrix gives Haar-uniform rotation
+    Q_mat, _ = np.linalg.qr(A)
     if np.linalg.det(Q_mat) < 0:
         Q_mat[:, 0] *= -1
     t = draw(
@@ -56,14 +51,10 @@ def aligned_pair_nd(draw):
     """N-D version for kabsch/umeyama."""
     dim = draw(st.integers(2, 6))
     P = draw(point_clouds_nd(dim=dim))
-    A = draw(
-        arrays(
-            np.float64,
-            (dim, dim),
-            elements=st.floats(-1, 1, allow_nan=False, allow_infinity=False),
-        )
-    )
-    Q_mat, _ = np.linalg.qr(A + np.eye(dim) * 0.1)
+    seed = draw(st.integers(0, 2**31 - 1))
+    A = np.random.default_rng(seed).standard_normal((dim, dim))
+    # QR of standard-normal matrix gives Haar-uniform rotation
+    Q_mat, _ = np.linalg.qr(A)
     if np.linalg.det(Q_mat) < 0:
         Q_mat[:, 0] *= -1
     t = draw(
