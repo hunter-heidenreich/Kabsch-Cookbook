@@ -6,11 +6,11 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     Computes the optimal rotation and translation to align P to Q.
 
     Args:
-        P: A BxNx3 array or Nx3 array of source points.
-        Q: A BxNx3 array or Nx3 array of target points.
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
 
     Returns:
-        (R, t, rmsd): Optimal rotation (Bx3x3), translation (Bx3), and RMSD.
+        (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
     """
     if P.shape != Q.shape:
         raise ValueError(
@@ -87,12 +87,12 @@ def kabsch_umeyama(
     (Q ~ c * R @ P + t).
 
     Args:
-        P: A BxNx3 array or Nx3 array of source points.
-        Q: A BxNx3 array or Nx3 array of target points.
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
 
     Returns:
-        (R, t, c, rmsd): Optimal rotation (Bx3x3), translation (Bx3), scale factor (B),
-        and RMSD.
+        (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
+        RMSD [...].
     """
     if P.shape != Q.shape:
         raise ValueError(
