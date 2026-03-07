@@ -50,7 +50,7 @@ dev = [
     "hypothesis[numpy]>=6.100",
     "jax>=0.6.2",
     "jaxlib>=0.6.2",
-    "mlx>=0.31.0",
+    "mlx>=0.31.0; sys_platform == 'darwin'",
     "numpy>=2.2.6",
     "pytest>=9.0.2",
     "rmsd>=1.5",
@@ -59,6 +59,13 @@ dev = [
     "tensorflow>=2.20.0",
     "torch>=2.10.0",
 ]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.ruff]
 target-version = "py310"
