@@ -100,6 +100,11 @@ def kabsch(
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], and RMSD [...].
         float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
@@ -182,6 +187,11 @@ def kabsch_umeyama(
         scale [...], RMSD [...].
         float16/bfloat16 inputs are upcast to float32 and downcast on output.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)

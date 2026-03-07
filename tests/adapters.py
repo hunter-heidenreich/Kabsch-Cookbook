@@ -362,7 +362,7 @@ try:
         def mismatch_exception_type(
             self,
         ) -> type[Exception] | tuple[type[Exception], ...]:
-            return tf.errors.InvalidArgumentError
+            return (tf.errors.InvalidArgumentError, ValueError)
 
 except ImportError:
     _TF_AVAILABLE = False

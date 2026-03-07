@@ -12,16 +12,16 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     Returns:
         (R, t, rmsd): Optimal rotation (Bx3x3), translation (Bx3), and RMSD.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     # Auto-batch single elements
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
-
-    if P.shape != Q.shape:
-        raise ValueError(
-            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
-        )
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -94,15 +94,15 @@ def kabsch_umeyama(
         (R, t, c, rmsd): Optimal rotation (Bx3x3), translation (Bx3), scale factor (B),
         and RMSD.
     """
-    is_single = P.ndim == 2
-    if is_single:
-        P = P[np.newaxis, ...]
-        Q = Q[np.newaxis, ...]
-
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+
+    is_single = P.ndim == 2
+    if is_single:
+        P = P[np.newaxis, ...]
+        Q = Q[np.newaxis, ...]
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
