@@ -69,8 +69,11 @@ class TestErrorHandling:
         algo: str,
     ) -> None:
         """
-        Verifies that if inputs contain NaNs, the output contains NaNs without
-        raising hard C-level aborts or failing to track mathematically.
+        Contract: NaN inputs must propagate to NaN outputs without raising exceptions.
+
+        PyTorch, JAX, and TensorFlow all propagate NaN through SVD. A framework
+        that raises on NaN input would be a real test failure here.
+        MLX is excluded because its linalg.svd fatally aborts the process on NaN.
         """
         if adapter.__class__.__name__ == "MLXAdapter":
             pytest.skip(
@@ -94,13 +97,7 @@ class TestErrorHandling:
 
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        try:
-            res = func(P, Q)
-        except Exception as e:
-            pytest.skip(
-                "Framework handles NaNs by raising an exception, "
-                f"which is acceptable: {e}"
-            )
+        res = func(P, Q)
 
         for tensor in res:
             if isinstance(tensor, float):
