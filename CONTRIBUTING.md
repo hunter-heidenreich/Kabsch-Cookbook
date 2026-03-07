@@ -46,3 +46,11 @@ uv run pytest tests/test_forward_pass_equivalence.py
 # Filter by name
 uv run pytest tests/ -k "test_identity_mapping"
 ```
+
+## Releasing
+
+1. Update `CHANGELOG.md`: add a new `## [X.Y.Z] - YYYY-MM-DD` section with all changes.
+2. Bump the version in `pyproject.toml` to match.
+3. Merge `dev` into `main`.
+4. Push a tag from `main`: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+5. The `release.yml` workflow runs automatically and creates the GitHub release.
