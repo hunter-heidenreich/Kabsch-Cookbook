@@ -11,12 +11,12 @@ Open an issue on GitHub with:
 
 ## Pull Requests
 
-1. Fork the repo and create a branch from `main`.
+1. Fork the repo and create a branch from `dev`.
 2. Install dev dependencies: `uv sync --group dev`
 3. Make your changes.
 4. Run the test suite: `uv run pytest tests/`
 5. Run the linter: `uv run ruff check . && uv run ruff format .`
-6. Open a PR against `main` with a clear description of the change.
+6. Open a PR against `dev` with a clear description of the change.
 
 ## Code Style
 
@@ -46,6 +46,18 @@ uv run pytest tests/test_forward_pass_equivalence.py
 # Filter by name
 uv run pytest tests/ -k "test_identity_mapping"
 ```
+
+## CI Matrix
+
+The test suite runs on two separate runner types:
+
+- **Linux (`ubuntu-latest`)**: Covers NumPy, PyTorch, JAX, and TensorFlow across
+  Python 3.10, 3.11, and 3.12. MLX is not installed on Linux (Apple Silicon only).
+- **macOS (`macos-latest`, Apple Silicon)**: Covers all frameworks including MLX,
+  across Python 3.10, 3.11, and 3.12.
+
+If you are contributing MLX changes, verify them locally on Apple Silicon before
+opening a PR.
 
 ## Releasing
 
