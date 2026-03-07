@@ -66,9 +66,7 @@ class TestReferenceValidation:
 
     @pytest.mark.parametrize("seed", _SEEDS)
     @pytest.mark.parametrize("adapter", frameworks)
-    def test_horn_matches_scipy(
-        self, adapter: FrameworkAdapter, seed: int
-    ) -> None:
+    def test_horn_matches_scipy(self, adapter: FrameworkAdapter, seed: int) -> None:
         """Our horn rotation matches scipy Rotation.align_vectors across seeds."""
         rng = np.random.default_rng(seed)
         P_np = rng.random((20, 3))
