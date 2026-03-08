@@ -208,10 +208,9 @@ try:
             return jnp.array(arr, dtype=dtype)
 
         def convert_out(self, obj: jax.Array) -> np.ndarray:
-            ret = np.array(obj)
-            if ret.dtype in (np.float16,):
-                ret = ret.astype(np.float32)
-            return ret
+            if obj.dtype in (jnp.bfloat16, jnp.float16):
+                obj = obj.astype(jnp.float32)
+            return np.array(obj)
 
         def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
             return kabsch_jax.kabsch(P, Q)
@@ -294,10 +293,9 @@ try:
             return tf.Variable(arr, dtype=dtype)
 
         def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
-            ret = obj.numpy()
-            if ret.dtype in (np.float16,):
-                ret = ret.astype(np.float32)
-            return ret
+            if obj.dtype in (tf.bfloat16, tf.float16):
+                obj = tf.cast(obj, tf.float32)
+            return obj.numpy()
 
         def kabsch(
             self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
