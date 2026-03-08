@@ -208,10 +208,9 @@ try:
             return jnp.array(arr, dtype=dtype)
 
         def convert_out(self, obj: jax.Array) -> np.ndarray:
-            ret = np.array(obj)
-            if ret.dtype in (np.float16,):
-                ret = ret.astype(np.float32)
-            return ret
+            if obj.dtype in (jnp.bfloat16, jnp.float16):
+                obj = obj.astype(jnp.float32)
+            return np.array(obj)
 
         def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
             return kabsch_jax.kabsch(P, Q)

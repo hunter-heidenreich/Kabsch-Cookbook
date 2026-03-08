@@ -29,13 +29,12 @@ _NUMPY_SETTINGS = settings(
 class TestRotationInvariants:
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(point_clouds_nd())
+    @given(aligned_pair_nd())
     def test_rotation_is_orthogonal_kabsch(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
+        self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
-        dim = P_np.shape[-1]
+        P_np, _R_true, _t_true, Q_np, dim = aligned
         assume(adapter.supports_dim(dim))
-        Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         res = adapter.kabsch(P, Q)
@@ -44,11 +43,11 @@ class TestRotationInvariants:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(point_clouds_3d())
+    @given(aligned_pair_3d())
     def test_rotation_is_orthogonal_horn(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
+        self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
-        Q_np = P_np + np.random.default_rng(0).random((1, 3)) * 0.5
+        P_np, _R_true, _t_true, Q_np = aligned
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         res = adapter.horn(P, Q)
@@ -57,13 +56,12 @@ class TestRotationInvariants:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(point_clouds_nd())
+    @given(aligned_pair_nd())
     def test_rotation_det_is_positive_kabsch(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
+        self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
-        dim = P_np.shape[-1]
+        P_np, _R_true, _t_true, Q_np, dim = aligned
         assume(adapter.supports_dim(dim))
-        Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         res = adapter.kabsch(P, Q)
@@ -72,11 +70,11 @@ class TestRotationInvariants:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(point_clouds_3d())
+    @given(aligned_pair_3d())
     def test_rotation_det_is_positive_horn(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
+        self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
-        Q_np = P_np + np.random.default_rng(0).random((1, 3)) * 0.5
+        P_np, _R_true, _t_true, Q_np = aligned
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         res = adapter.horn(P, Q)
@@ -202,10 +200,10 @@ class TestAlignmentOptimality:
     """Verify that the recovered rotation is locally optimal (numpy-only)."""
 
     @_NUMPY_SETTINGS
-    @given(point_clouds_3d())
-    def test_no_rotation_achieves_lower_rmsd(self, P_np: np.ndarray) -> None:
+    @given(aligned_pair_3d())
+    def test_no_rotation_achieves_lower_rmsd(self, aligned: tuple) -> None:
+        P_np, _R_true, _t_true, Q_np = aligned
         rng = np.random.default_rng(7)
-        Q_np = P_np + rng.random((1, 3)) * 2.0
         R, _t, rmsd_opt = kabsch_np.kabsch(P_np, Q_np)
 
         # Slightly perturb R with a small random skew and re-orthogonalise

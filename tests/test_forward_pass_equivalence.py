@@ -137,7 +137,7 @@ class TestForwardPassEquivalence:
             R_true,
             t_true,
             c_expected,
-            None,
+            0.0,
             algo,
             atol=adapter.atol,
             rtol=adapter.rtol,
@@ -307,6 +307,36 @@ class TestForwardPassEquivalence:
                 f"Expected dtype {expected_dtype}, got {tensor.dtype}"
             )
 
+    @pytest.mark.parametrize(
+        "algo, q_expected_idx",
+        [
+            pytest.param("kabsch", 1, id="kabsch"),
+            pytest.param("umeyama", 2, id="umeyama"),
+        ],
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_reconstruction_aligns_point_clouds(
+        self,
+        known_transform_points: KnownTransformT,
+        adapter: FrameworkAdapter,
+        algo: str,
+        q_expected_idx: int,
+    ) -> None:
+        """Verifies that applying the recovered transform maps P onto Q."""
+        P_np = known_transform_points[0]
+        Q_np = known_transform_points[q_expected_idx]
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        res = adapter.get_transform_func(algo)(P, Q)
+
+        R_out = adapter.convert_out(res[0])
+        t_out = adapter.convert_out(res[1])
+        c_out = float(adapter.convert_out(res[2])) if algo == "umeyama" else 1.0
+
+        P_aligned = c_out * (P_np @ R_out.T) + t_out
+        assert P_aligned == pytest.approx(Q_np, rel=adapter.rtol, abs=adapter.atol)
+
 
 class TestHornForwardPassEquivalence:
     """
@@ -388,7 +418,7 @@ class TestHornForwardPassEquivalence:
             R_true,
             t_true,
             c_expected,
-            None,
+            0.0,
             algo,
             atol=adapter.atol,
             rtol=adapter.rtol,
@@ -532,3 +562,33 @@ class TestHornForwardPassEquivalence:
             assert tensor.dtype == expected_dtype, (
                 f"Expected dtype {expected_dtype}, got {tensor.dtype}"
             )
+
+    @pytest.mark.parametrize(
+        "algo, q_expected_idx",
+        [
+            pytest.param("horn", 1, id="horn"),
+            pytest.param("horn_with_scale", 2, id="horn_with_scale"),
+        ],
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_reconstruction_aligns_point_clouds(
+        self,
+        horn_known_transform_points: tuple,
+        adapter: FrameworkAdapter,
+        algo: str,
+        q_expected_idx: int,
+    ) -> None:
+        """Verifies that applying the recovered transform maps P onto Q."""
+        P_np = horn_known_transform_points[0]
+        Q_np = horn_known_transform_points[q_expected_idx]
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        res = adapter.get_transform_func(algo)(P, Q)
+
+        R_out = adapter.convert_out(res[0])
+        t_out = adapter.convert_out(res[1])
+        c_out = float(adapter.convert_out(res[2])) if algo == "horn_with_scale" else 1.0
+
+        P_aligned = c_out * (P_np @ R_out.T) + t_out
+        assert P_aligned == pytest.approx(Q_np, rel=adapter.rtol, abs=adapter.atol)
