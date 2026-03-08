@@ -129,3 +129,36 @@ class TestHornDegeneracyGeometric:
         assert float(adapter.convert_out(rmsd)) == pytest.approx(
             0.0, abs=adapter.atol * 10
         )
+
+    def test_collinear_inputs_different_clouds_return_valid_rotation(
+        self,
+        adapter: FrameworkAdapter,
+    ) -> None:
+        P_np = np.zeros((20, 3))
+        P_np[:, 0] = np.linspace(-5, 5, 20)
+        rng = np.random.default_rng(13)
+        Q_np = P_np + rng.standard_normal(P_np.shape) * 0.01
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, _t, rmsd = adapter.horn(P, Q)
+        R_np = adapter.convert_out(R)
+        assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
+        assert np.linalg.det(R_np) > 0
+        assert np.isfinite(float(adapter.convert_out(rmsd)))
+
+    def test_coplanar_inputs_different_clouds_return_valid_rotation(
+        self,
+        adapter: FrameworkAdapter,
+    ) -> None:
+        rng = np.random.default_rng(7)
+        P_np = rng.standard_normal((20, 3))
+        P_np[:, 2] = 0.0
+        rng2 = np.random.default_rng(21)
+        Q_np = P_np + rng2.standard_normal(P_np.shape) * 0.01
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, _t, rmsd = adapter.horn(P, Q)
+        R_np = adapter.convert_out(R)
+        assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
+        assert np.linalg.det(R_np) > 0
+        assert np.isfinite(float(adapter.convert_out(rmsd)))

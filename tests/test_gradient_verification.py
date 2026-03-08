@@ -194,6 +194,8 @@ class TestGradientVerification:
             P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
         )
 
+        # 50x multiplier accounts for finite-difference truncation error and
+        # floating-point cancellation in near-singular configurations.
         np.testing.assert_allclose(
             grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
         )
@@ -355,6 +357,8 @@ class TestHornGradientVerification:
             P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
         )
 
+        # 50x multiplier accounts for finite-difference truncation error and
+        # floating-point cancellation in near-singular configurations.
         np.testing.assert_allclose(
             grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
         )

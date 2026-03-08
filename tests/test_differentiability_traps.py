@@ -320,7 +320,7 @@ class TestDifferentiabilityTraps:
     ) -> None:
         """Gradients remain finite for near-coplanar point clouds (Hypothesis)."""
         if not adapter.supports_dim(P_np.shape[-1]):
-            return
+            pytest.skip(f"adapter does not support dim={P_np.shape[-1]}")
         Q_np = P_np.copy()
         P = adapter.convert_in(P_np.astype(np.float64))
         Q = adapter.convert_in(Q_np.astype(np.float64))
@@ -349,7 +349,7 @@ class TestDifferentiabilityTraps:
             pytest.skip("extreme scale unsafe for float16/bfloat16")
         P_np, Q_np = PQ
         if not adapter.supports_dim(P_np.shape[-1]):
-            return
+            pytest.skip(f"adapter does not support dim={P_np.shape[-1]}")
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)

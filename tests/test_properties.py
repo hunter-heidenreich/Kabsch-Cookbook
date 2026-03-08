@@ -3,6 +3,7 @@ import pytest
 from adapters import FrameworkAdapter, frameworks
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 from strategies import (
     aligned_pair_3d,
     aligned_pair_nd,
@@ -262,43 +263,60 @@ _PAIR_SETTINGS = settings(
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
-_paired_clouds_nd = st.integers(2, 6).flatmap(
-    lambda d: st.integers(d + 2, d * 4 + 4).flatmap(
-        lambda n: st.tuples(
-            point_clouds_nd(dim=d, n_points=n), point_clouds_nd(dim=d, n_points=n)
+
+
+@st.composite
+def _paired_clouds_nd_composite(draw):
+    d = draw(st.integers(2, 6))
+    n = draw(st.integers(d + 2, d * 4 + 4))
+    P = draw(point_clouds_nd(dim=d, n_points=n))
+    Q = draw(point_clouds_nd(dim=d, n_points=n))
+    return P, Q, d
+
+
+@st.composite
+def _paired_with_shift(draw):
+    P, Q, d = draw(_paired_clouds_nd_composite())
+    v = draw(
+        arrays(
+            np.float64,
+            (d,),
+            elements=st.floats(-10, 10, allow_nan=False, allow_infinity=False),
         )
     )
-)
+    return P, Q, d, v
 
 
 class TestAlignmentInvariants:
     """Mathematical invariants that must hold for all valid inputs (numpy-only)."""
 
     @_NUMPY_SETTINGS
-    @given(_paired_clouds_nd)
+    @given(_paired_clouds_nd_composite())
     def test_rmsd_equals_transform_residual(self, PQ: tuple) -> None:
         """kabsch RMSD equals the Frobenius residual of the returned transform."""
-        P_np, Q_np = PQ
+        P_np, Q_np, _ = PQ
         n = P_np.shape[0]
         R, t, rmsd = kabsch_np.kabsch(P_np, Q_np)
         residual = np.linalg.norm(P_np @ R.T + t - Q_np) / np.sqrt(n)
         np.testing.assert_allclose(float(rmsd), residual, atol=1e-8)
 
     @_NUMPY_SETTINGS
-    @given(_paired_clouds_nd)
+    @given(_paired_clouds_nd_composite())
     def test_kabsch_rmsd_is_symmetric(self, PQ: tuple) -> None:
         """RMSD is the same when aligning P->Q and Q->P."""
-        P_np, Q_np = PQ
+        P_np, Q_np, _ = PQ
         _, _, rmsd_fwd = kabsch_np.kabsch(P_np, Q_np)
         _, _, rmsd_bwd = kabsch_np.kabsch(Q_np, P_np)
         np.testing.assert_allclose(float(rmsd_fwd), float(rmsd_bwd), atol=1e-8)
 
     @_NUMPY_SETTINGS
-    @given(aligned_pair_nd())
-    def test_rmsd_invariant_to_rigid_transform(self, aligned: tuple) -> None:
+    @given(aligned_pair_nd(), st.integers(0, 2**31 - 1))
+    def test_rmsd_invariant_to_rigid_transform(
+        self, aligned: tuple, rng_seed: int
+    ) -> None:
         """RMSD is unchanged when both P and Q undergo the same rigid transform."""
         P_np, _, _, Q_np, dim = aligned
-        rng = np.random.default_rng(99)
+        rng = np.random.default_rng(rng_seed)
         A = rng.standard_normal((dim, dim))
         S, _ = np.linalg.qr(A)
         if np.linalg.det(S) < 0:
@@ -309,24 +327,22 @@ class TestAlignmentInvariants:
         np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-6)
 
     @_PAIR_SETTINGS
-    @given(_paired_clouds_nd, st.integers(0, 2**31 - 1))
-    def test_r_invariant_to_translation(self, PQ: tuple, seed: int) -> None:
+    @given(_paired_with_shift())
+    def test_r_invariant_to_translation(self, PQdv: tuple) -> None:
         """Rotation R is unchanged when both P and Q are shifted by the same vector."""
-        P_np, Q_np = PQ
-        dim = P_np.shape[-1]
+        P_np, Q_np, _dim, v = PQdv
         H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
         sv_H = np.linalg.svd(H, compute_uv=False)
         assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
-        v = np.random.default_rng(seed).standard_normal(dim)
         R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
         R2, _, _ = kabsch_np.kabsch(P_np + v, Q_np + v)
         np.testing.assert_allclose(R1, R2, atol=1e-6)
 
     @_PAIR_SETTINGS
-    @given(_paired_clouds_nd, st.floats(0.1, 10.0))
+    @given(_paired_clouds_nd_composite(), st.floats(0.1, 10.0))
     def test_r_invariant_to_uniform_scale(self, PQ: tuple, c: float) -> None:
         """Rotation R is unchanged when both P and Q are scaled by the same scalar."""
-        P_np, Q_np = PQ
+        P_np, Q_np, _ = PQ
         H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
         sv_H = np.linalg.svd(H, compute_uv=False)
         assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned

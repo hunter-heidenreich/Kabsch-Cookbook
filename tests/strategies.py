@@ -1,6 +1,9 @@
 import numpy as np
+from hypothesis import assume
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
+
+_BOUNDED = {"allow_nan": False, "allow_infinity": False}
 
 
 @st.composite
@@ -72,12 +75,17 @@ def aligned_pair_nd(draw):
 def nearly_collinear_3d(draw):
     """3-D point cloud lying near a single line (small perpendicular noise)."""
     n = draw(st.integers(5, 20))
-    rng = np.random.default_rng(draw(st.integers(0, 2**31 - 1)))
-    direction = rng.standard_normal(3)
-    direction /= np.linalg.norm(direction)
-    t_vals = rng.uniform(-10, 10, size=n)
+    direction = draw(arrays(np.float64, (3,), elements=st.floats(-10, 10, **_BOUNDED)))
+    norm = np.linalg.norm(direction)
+    assume(norm > 1e-10)
+    direction = direction / norm
+    t_vals = draw(arrays(np.float64, (n,), elements=st.floats(-10, 10, **_BOUNDED)))
+    assume(np.max(t_vals) - np.min(t_vals) > 1.0)
     noise_scale = draw(st.floats(1e-4, 1e-2))
-    noise = rng.standard_normal((n, 3)) * noise_scale
+    noise = (
+        draw(arrays(np.float64, (n, 3), elements=st.floats(-1, 1, **_BOUNDED)))
+        * noise_scale
+    )
     return np.outer(t_vals, direction) + noise
 
 
@@ -87,10 +95,14 @@ def nearly_coplanar_nd(draw, dim=None):
     if dim is None:
         dim = draw(st.integers(2, 6))
     n = draw(st.integers(dim + 2, dim * 4 + 4))
-    rng = np.random.default_rng(draw(st.integers(0, 2**31 - 1)))
-    P = rng.uniform(-10, 10, size=(n, dim))
+    P = draw(arrays(np.float64, (n, dim), elements=st.floats(-10, 10, **_BOUNDED)))
     noise_scale = draw(st.floats(1e-4, 1e-2))
-    P[:, -1] = rng.standard_normal(n) * noise_scale
+    last_col = (
+        draw(arrays(np.float64, (n,), elements=st.floats(-1, 1, **_BOUNDED)))
+        * noise_scale
+    )
+    P = P.copy()
+    P[:, -1] = last_col
     return P
 
 
@@ -99,10 +111,15 @@ def extreme_scale_cloud(draw):
     """Pair (P, Q) with very large or very small coordinate magnitudes."""
     dim = draw(st.integers(2, 6))
     n = draw(st.integers(dim + 2, dim * 4 + 4))
-    rng = np.random.default_rng(draw(st.integers(0, 2**31 - 1)))
     scale = draw(st.sampled_from([1e-6, 1e-3, 1e3, 1e6]))
-    P = rng.standard_normal((n, dim)) * scale
-    Q = rng.standard_normal((n, dim)) * scale
+    P = (
+        draw(arrays(np.float64, (n, dim), elements=st.floats(-1, 1, **_BOUNDED)))
+        * scale
+    )
+    Q = (
+        draw(arrays(np.float64, (n, dim), elements=st.floats(-1, 1, **_BOUNDED)))
+        * scale
+    )
+    # P and Q are drawn independently -- the intent is to test gradient
+    # finiteness at extreme scales, not alignment correctness.
     return P, Q
-
-
