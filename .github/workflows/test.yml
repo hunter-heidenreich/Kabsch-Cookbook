@@ -2,12 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "main" ]
   pull_request:
     branches: [ "main", "dev" ]
 
 jobs:
-  test:
+  test-linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -30,7 +30,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --all-extras --dev
+        # MLX has sys_platform == 'darwin' in pyproject.toml, so it is
+        # skipped automatically on Linux -- no extra flag needed.
+        run: uv sync --dev
 
       - name: Lint with Ruff
         run: |
@@ -38,5 +40,34 @@ jobs:
           uv run ruff format --check .
 
       - name: Test with pytest
-        run: |
-          uv run pytest tests/
+        run: uv run pytest tests/
+
+  test-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        # MLX has sys_platform == 'darwin' in pyproject.toml, so it is
+        # installed here and MLX tests run on this runner.
+        run: uv sync --dev
+
+      - name: Test with pytest
+        run: uv run pytest tests/

@@ -42,7 +42,7 @@ def known_transform_points(
 
     R_true = _get_random_rotation(rng, dim)
     t_true = rng.random((dim,)) * 5.0 - 2.5
-    c_true = 2.5
+    c_true = float(rng.uniform(0.5, 5.0))
 
     Q_kabsch = P @ R_true.T + t_true
     Q_umeyama = c_true * (P @ R_true.T) + t_true
@@ -118,7 +118,11 @@ def batch_points(dim) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(42)
     n_points = max(10, dim * 2)
     P = rng.random((5, n_points, dim))  # Batch size 5
-    Q = P + rng.random((5, 1, dim))
+    Q = np.empty_like(P)
+    for b in range(5):
+        R_b = _get_random_rotation(rng, dim)
+        t_b = rng.random((dim,))
+        Q[b] = P[b] @ R_b.T + t_b
     return P, Q
 
 
@@ -127,7 +131,12 @@ def nd_batch_points(dim) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(42)
     n_points = max(10, dim * 2)
     P = rng.random((2, 3, n_points, dim))  # Batch size 2x3
-    Q = P + rng.random((2, 3, 1, dim))
+    Q = np.empty_like(P)
+    for i in range(2):
+        for j in range(3):
+            R_b = _get_random_rotation(rng, dim)
+            t_b = rng.random((dim,))
+            Q[i, j] = P[i, j] @ R_b.T + t_b
     return P, Q
 
 
@@ -143,7 +152,7 @@ def horn_known_transform_points() -> tuple:
     P = rng.random((20, 3))
     R_true = _get_random_rotation(rng, 3)
     t_true = rng.random((3,)) * 5.0 - 2.5
-    c_true = 2.5
+    c_true = float(rng.uniform(0.5, 5.0))
     Q_horn = P @ R_true.T + t_true
     Q_horn_scale = c_true * (P @ R_true.T) + t_true
     return P, Q_horn, Q_horn_scale, R_true, t_true, c_true
@@ -153,7 +162,11 @@ def horn_known_transform_points() -> tuple:
 def horn_batch_points() -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(42)
     P = rng.random((5, 20, 3))
-    Q = P + rng.random((5, 1, 3))
+    Q = np.empty_like(P)
+    for b in range(5):
+        R_b = _get_random_rotation(rng, 3)
+        t_b = rng.random((3,))
+        Q[b] = P[b] @ R_b.T + t_b
     return P, Q
 
 
@@ -161,7 +174,12 @@ def horn_batch_points() -> tuple[np.ndarray, np.ndarray]:
 def horn_nd_batch_points() -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(42)
     P = rng.random((2, 3, 20, 3))
-    Q = P + rng.random((2, 3, 1, 3))
+    Q = np.empty_like(P)
+    for i in range(2):
+        for j in range(3):
+            R_b = _get_random_rotation(rng, 3)
+            t_b = rng.random((3,))
+            Q[i, j] = P[i, j] @ R_b.T + t_b
     return P, Q
 
 
@@ -169,6 +187,10 @@ def pytest_collection_modifyitems(session, config, items) -> None:
     """
     Filters out tests where the requested framework adapter
     does not support the requested spatial dimension.
+
+    Note: Hypothesis tests parametrised by `adapter` but with `dim` drawn
+    inside `@given` are not filtered here -- they guard themselves with
+    `assume(adapter.supports_dim(dim))` inside the test body.
     """
     kept = []
     for item in items:

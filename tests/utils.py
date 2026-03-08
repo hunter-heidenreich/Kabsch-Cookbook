@@ -152,33 +152,31 @@ def compute_sequential_expected_tensors(
     """Computes expected batched outputs by running sequential computations.
 
     Args:
-        P_np: Input N-D point cloud array.
-        Q_np: Target N-D point cloud array.
+        P_np: Input N-D point cloud array with arbitrary leading batch dims.
+        Q_np: Target N-D point cloud array with arbitrary leading batch dims.
         adapter: The framework adapter to use.
-        algo: Algorithm to use ('kabsch' or 'umeyama').
+        algo: Algorithm to use ('kabsch', 'umeyama', 'horn', or 'horn_with_scale').
 
     Returns:
-        List of concatenated numpy arrays matching batched output structure.
+        List of numpy arrays matching batched output structure.
     """
     func = adapter.get_transform_func(algo)
-    b0, b1 = P_np.shape[0], P_np.shape[1]
+    batch_shape = P_np.shape[:-2]  # arbitrary leading dims
 
-    expected_res = []
-    for i in range(b0):
-        row_res = []
-        for j in range(b1):
-            P_seq = adapter.convert_in(P_np[i, j])
-            Q_seq = adapter.convert_in(Q_np[i, j])
-            seq_res = func(P_seq, Q_seq)
-            row_res.append([adapter.convert_out(tensor) for tensor in seq_res])
-        expected_res.append(row_res)
+    results = {}
+    for idx in np.ndindex(*batch_shape):
+        P_seq = adapter.convert_in(P_np[idx])
+        Q_seq = adapter.convert_in(Q_np[idx])
+        results[idx] = [adapter.convert_out(t) for t in func(P_seq, Q_seq)]
 
-    num_tensors = len(expected_res[0][0])
-    expected_tensors = []
+    num_tensors = len(next(iter(results.values())))
+    first_key = next(iter(results.keys()))
+    expected = []
     for t_idx in range(num_tensors):
-        expected_tensor_list = [
-            [expected_res[i][j][t_idx] for j in range(b1)] for i in range(b0)
-        ]
-        expected_tensors.append(np.array(expected_tensor_list))
+        sample = results[first_key][t_idx]
+        arr = np.empty(batch_shape + sample.shape)
+        for idx in np.ndindex(*batch_shape):
+            arr[idx] = results[idx][t_idx]
+        expected.append(arr)
 
-    return expected_tensors
+    return expected

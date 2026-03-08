@@ -14,8 +14,17 @@ class SafeSVD(torch.autograd.Function):
     def forward(
         ctx, A: torch.Tensor, eps: float = 1e-12
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        # Fast path
-        U, S, Vh = torch.linalg.svd(A)
+        try:
+            U, S, Vh = torch.linalg.svd(A)
+        except torch.linalg.LinAlgError:
+            # NaN or degenerate input: propagate NaN without crashing.
+            # torch.linalg.svd raises rather than returning NaN, so we handle
+            # it explicitly to satisfy the NaN-propagation contract.
+            nan_mat = A.new_full(A.shape, float("nan"))
+            nan_s = A.new_full(A.shape[:-1], float("nan"))
+            ctx.save_for_backward(nan_mat, nan_s, nan_mat)
+            ctx.eps = eps
+            return nan_mat, nan_s, nan_mat
         # In PyTorch 1.11+, linalg.svd returns Vh (V^T or V^H).
         # We want V for the standard Kabsch logic, so V = Vh.transpose(-2, -1)
         V = Vh.mH  # Conjugate transpose / standard transpose for real.
@@ -80,16 +89,6 @@ class SafeSVD(torch.autograd.Function):
         S_diag = torch.diag_embed(grad_S)
         S_mat = torch.diag_embed(S)
 
-        term = S_diag + torch.matmul(J, S_mat) + torch.matmul(S_mat, K)
-
-        # The backward needs a correct matrix application order according to the manual:
-        # dA = U @ (dS + J@S + S@K) @ V^T
-        # Wait, if Ut_dU was negated, the sign would flip.
-        # Actually PyTorch defines J as F * (U^T dU - dU^T U).
-        # But wait, we returned grad_A. SVD solves A = U S V^T.
-        # Standard rules state reverse AD rule for A = U S V^T is:
-        # dA = U @ (dS + J@S + S@K) @ V^T
-        # We might have negated F somewhere, let's just make it negative entirely:
         term = S_diag - torch.matmul(J, S_mat) - torch.matmul(S_mat, K)
 
         grad_A = torch.matmul(U, torch.matmul(term, Vh))
@@ -148,8 +147,6 @@ def kabsch(
 
     P = P.view(-1, _N, D)
     Q = Q.view(-1, _N, D)
-
-    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)  # Bx1x3
@@ -242,8 +239,6 @@ def kabsch_umeyama(
 
     P = P.view(-1, N, D)
     Q = Q.view(-1, N, D)
-
-    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = torch.mean(P, dim=1, keepdim=True)

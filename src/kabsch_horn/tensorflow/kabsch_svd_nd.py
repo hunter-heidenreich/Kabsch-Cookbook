@@ -71,6 +71,11 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     """
     Computes the optimal rotation and translation to align P and Q.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
@@ -142,6 +147,11 @@ def kabsch_umeyama(
     """
     Computes the optimal rotation, translation, and scale.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)

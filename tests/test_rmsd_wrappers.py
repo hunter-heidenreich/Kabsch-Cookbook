@@ -26,27 +26,8 @@ class TestKabschRmsdWrappers:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
 
-        from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import pytorch as kabsch_torch
-        from kabsch_horn import tensorflow as kabsch_tf
-
-        adapter_cls = type(adapter).__name__
-        if adapter_cls == "PyTorchAdapter":
-            rmsd_wrapper = float(adapter.convert_out(kabsch_torch.kabsch_rmsd(P, Q)))
-            rmsd_full = float(adapter.convert_out(kabsch_torch.kabsch(P, Q)[2]))
-        elif adapter_cls == "JAXAdapter":
-            rmsd_wrapper = float(adapter.convert_out(kabsch_jax.kabsch_rmsd(P, Q)))
-            rmsd_full = float(adapter.convert_out(kabsch_jax.kabsch(P, Q)[2]))
-        elif adapter_cls == "TFAdapter":
-            rmsd_wrapper = float(adapter.convert_out(kabsch_tf.kabsch_rmsd(P, Q)))
-            rmsd_full = float(adapter.convert_out(kabsch_tf.kabsch(P, Q)[2]))
-        elif adapter_cls == "MLXAdapter":
-            from kabsch_horn import mlx as kabsch_mlx
-
-            rmsd_wrapper = float(adapter.convert_out(kabsch_mlx.kabsch_rmsd(P, Q)))
-            rmsd_full = float(adapter.convert_out(kabsch_mlx.kabsch(P, Q)[2]))
-        else:
-            pytest.skip(f"Unsupported adapter: {adapter_cls}")
+        rmsd_wrapper = float(adapter.convert_out(adapter.kabsch_rmsd(P, Q)))
+        rmsd_full = float(adapter.convert_out(adapter.kabsch(P, Q)[2]))
 
         assert rmsd_wrapper == pytest.approx(
             rmsd_full, rel=adapter.rtol, abs=adapter.atol
@@ -67,27 +48,8 @@ class TestKabschRmsdWrappers:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
 
-        from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import pytorch as kabsch_torch
-        from kabsch_horn import tensorflow as kabsch_tf
-
-        adapter_cls = type(adapter).__name__
-        if adapter_cls == "PyTorchAdapter":
-            rmsd_w = float(adapter.convert_out(kabsch_torch.kabsch_umeyama_rmsd(P, Q)))
-            rmsd_f = float(adapter.convert_out(kabsch_torch.kabsch_umeyama(P, Q)[3]))
-        elif adapter_cls == "JAXAdapter":
-            rmsd_w = float(adapter.convert_out(kabsch_jax.kabsch_umeyama_rmsd(P, Q)))
-            rmsd_f = float(adapter.convert_out(kabsch_jax.kabsch_umeyama(P, Q)[3]))
-        elif adapter_cls == "TFAdapter":
-            rmsd_w = float(adapter.convert_out(kabsch_tf.kabsch_umeyama_rmsd(P, Q)))
-            rmsd_f = float(adapter.convert_out(kabsch_tf.kabsch_umeyama(P, Q)[3]))
-        elif adapter_cls == "MLXAdapter":
-            from kabsch_horn import mlx as kabsch_mlx
-
-            rmsd_w = float(adapter.convert_out(kabsch_mlx.kabsch_umeyama_rmsd(P, Q)))
-            rmsd_f = float(adapter.convert_out(kabsch_mlx.kabsch_umeyama(P, Q)[3]))
-        else:
-            pytest.skip(f"Unsupported adapter: {adapter_cls}")
+        rmsd_w = float(adapter.convert_out(adapter.kabsch_umeyama_rmsd(P, Q)))
+        rmsd_f = float(adapter.convert_out(adapter.kabsch_umeyama(P, Q)[3]))
 
         assert rmsd_w == pytest.approx(rmsd_f, rel=adapter.rtol, abs=adapter.atol)
 
@@ -119,36 +81,10 @@ class TestKabschRmsdWrappers:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
 
-        from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import pytorch as kabsch_torch
-        from kabsch_horn import tensorflow as kabsch_tf
-
-        adapter_cls = type(adapter).__name__
-        if adapter_cls == "PyTorchAdapter":
-            func_map = {
-                "kabsch_rmsd": kabsch_torch.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_torch.kabsch_umeyama_rmsd,
-            }
-        elif adapter_cls == "JAXAdapter":
-            func_map = {
-                "kabsch_rmsd": kabsch_jax.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_jax.kabsch_umeyama_rmsd,
-            }
-        elif adapter_cls == "TFAdapter":
-            func_map = {
-                "kabsch_rmsd": kabsch_tf.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_tf.kabsch_umeyama_rmsd,
-            }
-        elif adapter_cls == "MLXAdapter":
-            from kabsch_horn import mlx as kabsch_mlx
-
-            func_map = {
-                "kabsch_rmsd": kabsch_mlx.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_mlx.kabsch_umeyama_rmsd,
-            }
-        else:
-            pytest.skip(f"Unsupported adapter: {adapter_cls}")
-
+        func_map = {
+            "kabsch_rmsd": adapter.kabsch_rmsd,
+            "kabsch_umeyama_rmsd": adapter.kabsch_umeyama_rmsd,
+        }
         rmsd = float(adapter.convert_out(func_map[algo](P, Q)))
         assert rmsd == pytest.approx(0.0, abs=adapter.atol)
 
@@ -170,43 +106,38 @@ class TestKabschRmsdWrappers:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
 
-        from kabsch_horn import jax as kabsch_jax
-        from kabsch_horn import pytorch as kabsch_torch
-        from kabsch_horn import tensorflow as kabsch_tf
-
-        adapter_cls = type(adapter).__name__
-        if adapter_cls == "PyTorchAdapter":
-            func_map = {
-                "kabsch_rmsd": kabsch_torch.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_torch.kabsch_umeyama_rmsd,
-            }
-        elif adapter_cls == "JAXAdapter":
-            func_map = {
-                "kabsch_rmsd": kabsch_jax.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_jax.kabsch_umeyama_rmsd,
-            }
-        elif adapter_cls == "TFAdapter":
-            func_map = {
-                "kabsch_rmsd": kabsch_tf.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_tf.kabsch_umeyama_rmsd,
-            }
-        elif adapter_cls == "MLXAdapter":
-            from kabsch_horn import mlx as kabsch_mlx
-
-            func_map = {
-                "kabsch_rmsd": kabsch_mlx.kabsch_rmsd,
-                "kabsch_umeyama_rmsd": kabsch_mlx.kabsch_umeyama_rmsd,
-            }
-        else:
-            pytest.skip(f"Unsupported adapter: {adapter_cls}")
-
-        rmsd_fn = func_map[algo]
+        rmsd_fn = getattr(adapter, algo)
 
         def wrapper(P_inner, Q_inner):
             return (rmsd_fn(P_inner, Q_inner),)
 
         grad = adapter.get_grad(P, Q, wrapper, seed=None, wrt="P")
         assert np.isfinite(grad).all(), "Gradient from rmsd wrapper contains NaN/Inf"
+
+    @pytest.mark.parametrize("algo", ["kabsch_rmsd", "kabsch_umeyama_rmsd"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_rmsd_wrapper_gradient_wrt_q_is_finite(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """Gradients wrt Q from rmsd wrappers are finite."""
+        rng = np.random.default_rng(4)
+        P_np = rng.random((20, 3))
+        Q_np = rng.random((20, 3))
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+
+        rmsd_fn = getattr(adapter, algo)
+
+        def wrapper(P_inner, Q_inner):
+            return (rmsd_fn(P_inner, Q_inner),)
+
+        grad = adapter.get_grad(P, Q, wrapper, seed=None, wrt="Q")
+        assert np.isfinite(grad).all(), (
+            "Gradient wrt Q from rmsd wrapper contains NaN/Inf"
+        )
 
 
 class TestSinglePoint:

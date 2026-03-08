@@ -40,10 +40,10 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/heidenreich/Kabsch-Cookbook"
-Repository = "https://github.com/heidenreich/Kabsch-Cookbook"
-Issues = "https://github.com/heidenreich/Kabsch-Cookbook/issues"
-Changelog = "https://github.com/heidenreich/Kabsch-Cookbook/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hunter-heidenreich/Kabsch-Cookbook"
+Repository = "https://github.com/hunter-heidenreich/Kabsch-Cookbook"
+Issues = "https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues"
+Changelog = "https://github.com/hunter-heidenreich/Kabsch-Cookbook/blob/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
@@ -54,6 +54,7 @@ dev = [
     "numpy>=2.2.6",
     "pytest>=9.0.2",
     "rmsd>=1.5",
+    "pre-commit>=4.0",
     "ruff>=0.14.0",
     "scipy>=1.15",
     "tensorflow>=2.20.0",
@@ -66,6 +67,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py310"

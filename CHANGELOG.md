@@ -16,20 +16,3 @@ All notable changes to this project are documented here.
 ### Bug Fixes
 
 * guard MLX import for Linux CI ([#54](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/54)) ([2d649c5](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/2d649c5ff222d2022c14116cd55923fcdcb1ebaa))
-
-## [0.1.0] - 2026-03-05
-
-Initial public release.
-
-### Added
-
-- Kabsch algorithm (SVD-based, N-dimensional) for NumPy, PyTorch, JAX, TensorFlow, and MLX.
-- Kabsch-Umeyama algorithm (with global scale) across all five frameworks.
-- Horn's quaternion method (3D only) for NumPy, PyTorch, JAX, TensorFlow, and MLX.
-- Horn's quaternion method with scale for all five frameworks.
-- Gradient-safe custom autograd wrappers (`SafeSVD`, `SafeEigh`) for PyTorch, JAX, TensorFlow, and MLX, preventing NaN gradients when point clouds are symmetric or degenerate.
-- Single-call RMSD loss functions (`kabsch_rmsd`, `kabsch_umeyama_rmsd`) for all autodiff frameworks (PyTorch, JAX, TensorFlow, MLX).
-- Batched inputs with arbitrary leading dimensions (`[..., N, D]`).
-- Automatic float16/bfloat16 upcasting to float32 with output downcast.
-- Comprehensive test suite covering forward-pass equivalence, differentiability traps, gradient verification, catastrophic cancellation, and degeneracy.
-- PEP 561 `py.typed` marker for downstream type checker compatibility.

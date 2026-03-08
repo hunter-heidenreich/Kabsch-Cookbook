@@ -6,22 +6,22 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     Computes the optimal rotation and translation to align P to Q.
 
     Args:
-        P: A BxNx3 array or Nx3 array of source points.
-        Q: A BxNx3 array or Nx3 array of target points.
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
 
     Returns:
-        (R, t, rmsd): Optimal rotation (Bx3x3), translation (Bx3), and RMSD.
+        (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     # Auto-batch single elements
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
-
-    if P.shape != Q.shape:
-        raise ValueError(
-            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
-        )
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -87,22 +87,22 @@ def kabsch_umeyama(
     (Q ~ c * R @ P + t).
 
     Args:
-        P: A BxNx3 array or Nx3 array of source points.
-        Q: A BxNx3 array or Nx3 array of target points.
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
 
     Returns:
-        (R, t, c, rmsd): Optimal rotation (Bx3x3), translation (Bx3), scale factor (B),
-        and RMSD.
+        (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
+        RMSD [...].
     """
-    is_single = P.ndim == 2
-    if is_single:
-        P = P[np.newaxis, ...]
-        Q = Q[np.newaxis, ...]
-
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+
+    is_single = P.ndim == 2
+    if is_single:
+        P = P[np.newaxis, ...]
+        Q = Q[np.newaxis, ...]
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -110,8 +110,6 @@ def kabsch_umeyama(
 
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
-
-    _B = P.shape[0]
 
     # Compute centroids
     centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD

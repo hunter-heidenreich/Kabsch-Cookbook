@@ -1,10 +1,12 @@
+import math
+
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
 
 
 class TestErrorHandling:
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_point_counts_differ(
         self,
@@ -12,18 +14,39 @@ class TestErrorHandling:
         algo: str,
     ) -> None:
         """
-        Verifies that algorithms explicitly raise or propagate an error when
-        P and Q have mismatched point counts.
+        Verifies that all algorithms raise or propagate an error when
+        P and Q have mismatched point counts (N).
         """
-        dim = 3
-
-        # 5 points vs 4 points
-        P_np = np.random.rand(5, dim).astype(np.float64)
-        Q_np = np.random.rand(4, dim).astype(np.float64)
+        rng = np.random.default_rng(0)
+        # 5 points vs 4 points, 3D (horn requires 3D)
+        P_np = rng.random((5, 3))
+        Q_np = rng.random((4, 3))
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
+
+        with pytest.raises(adapter.mismatch_exception_type):
+            func(P, Q)
+
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_raises_error_when_dims_differ(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """
+        Verifies that kabsch/umeyama raise or propagate an error when
+        P and Q have mismatched dimensionality (D).
+        """
+        rng = np.random.default_rng(0)
+        P_np = rng.random((5, 3))
+        Q_np = rng.random((5, 4))  # same N, different D
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
 
         with pytest.raises(adapter.mismatch_exception_type):
             func(P, Q)
@@ -69,10 +92,13 @@ class TestErrorHandling:
         algo: str,
     ) -> None:
         """
-        Verifies that if inputs contain NaNs, the output contains NaNs without
-        raising hard C-level aborts or failing to track mathematically.
+        Contract: NaN inputs must propagate to NaN outputs without raising exceptions.
+
+        PyTorch, JAX, and TensorFlow all propagate NaN through SVD. A framework
+        that raises on NaN input would be a real test failure here.
+        MLX is excluded because its linalg.svd fatally aborts the process on NaN.
         """
-        if adapter.__class__.__name__ == "MLXAdapter":
+        if not adapter.supports_nan_input:
             pytest.skip(
                 "MLX linalg.svd currently throws a fatal hardware Abort on NaNs "
                 "which aborts pytest."
@@ -80,11 +106,9 @@ class TestErrorHandling:
 
         dim = 3
 
-        import numpy as np
-
-        np.random.seed(42)
-        P_np = np.random.rand(5, dim).astype(np.float64)
-        Q_np = np.random.rand(5, dim).astype(np.float64)
+        rng = np.random.default_rng(42)
+        P_np = rng.random((5, dim))
+        Q_np = rng.random((5, dim))
 
         # Inject NaN
         P_np[0, 0] = np.nan
@@ -94,18 +118,10 @@ class TestErrorHandling:
 
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        try:
-            res = func(P, Q)
-        except Exception as e:
-            pytest.skip(
-                "Framework handles NaNs by raising an exception, "
-                f"which is acceptable: {e}"
-            )
+        res = func(P, Q)
 
         for tensor in res:
             if isinstance(tensor, float):
-                import math
-
                 assert math.isnan(tensor) or adapter.is_nan(tensor), (
                     "Expected NaN to propagate"
                 )

@@ -82,6 +82,11 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Raises:
         ValueError: If inputs are not 3-dimensional (D != 3).
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     if P.shape[-1] != 3:
         raise ValueError(
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
@@ -181,6 +186,11 @@ def kabsch_umeyama(
     Raises:
         ValueError: If inputs are not 3-dimensional (D != 3).
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     if P.shape[-1] != 3:
         raise ValueError(
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "

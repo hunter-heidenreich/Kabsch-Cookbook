@@ -9,14 +9,42 @@ Open an issue on GitHub with:
 - The framework and version (e.g., PyTorch 2.10, JAX 0.6).
 - Expected vs. actual behavior.
 
+## Pre-commit Hooks
+
+The repo ships a `.pre-commit-config.yaml` with three categories of hooks:
+
+- **File hygiene** (`pre-commit-hooks`): strips trailing whitespace, ensures a
+  final newline, normalizes line endings, and blocks large files or merge
+  conflict markers.
+- **Config validation** (`pre-commit-hooks`): checks YAML, JSON, and TOML files
+  for syntax errors before they land in the repo.
+- **Secret scanning** (`gitleaks`): detects API keys, tokens, and other
+  credentials using regex-based rules.
+- **Lint and format** (`ruff-pre-commit`): runs `ruff --fix` and `ruff-format`
+  so every commit already passes CI style checks.
+
+One-time setup after cloning:
+
+```bash
+uv sync --group dev
+uv run pre-commit install
+```
+
+To run all hooks against the full codebase manually:
+
+```bash
+uv run pre-commit run --all-files
+```
+
 ## Pull Requests
 
-1. Fork the repo and create a branch from `main`.
-2. Install dev dependencies: `uv sync --group dev`
+1. Fork the repo and create a branch from `dev`.
+2. Install dev dependencies and hooks: `uv sync --group dev && uv run pre-commit install`
 3. Make your changes.
 4. Run the test suite: `uv run pytest tests/`
-5. Run the linter: `uv run ruff check . && uv run ruff format .`
-6. Open a PR against `main` with a clear description of the change.
+5. Commit your changes -- pre-commit hooks run automatically and block the
+   commit if any check fails. Fix reported issues, re-stage, and commit again.
+6. Open a PR against `dev` with a clear description of the change.
 
 ## Code Style
 
@@ -46,6 +74,18 @@ uv run pytest tests/test_forward_pass_equivalence.py
 # Filter by name
 uv run pytest tests/ -k "test_identity_mapping"
 ```
+
+## CI Matrix
+
+The test suite runs on two separate runner types:
+
+- **Linux (`ubuntu-latest`)**: Covers NumPy, PyTorch, JAX, and TensorFlow across
+  Python 3.10, 3.11, and 3.12. MLX is not installed on Linux (Apple Silicon only).
+- **macOS (`macos-latest`, Apple Silicon)**: Covers all frameworks including MLX,
+  across Python 3.10, 3.11, and 3.12.
+
+If you are contributing MLX changes, verify them locally on Apple Silicon before
+opening a PR.
 
 ## Releasing
 
