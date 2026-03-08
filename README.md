@@ -73,7 +73,7 @@ loss.mean().backward()
 | `kabsch_umeyama_rmsd` | -- | ✓ | ✓ | ✓ | ✓ |
 | Gradient-safe backward | -- | ✓ | ✓ | ✓ | ✓ |
 
-NumPy provides forward-pass evaluation only. MLX uses a hardcoded 3x3 determinant correction and raises `ValueError` for non-3D inputs.
+NumPy provides forward-pass evaluation only. MLX uses a hardcoded 3x3 determinant correction and raises `ValueError` for non-3D inputs. JAX float64 requires `JAX_ENABLE_X64=True` to be set before importing JAX, otherwise inputs are silently downcast to float32.
 
 ## Two Paths to Alignment
 
@@ -160,6 +160,12 @@ Some inputs are fundamentally degenerate. The library does not raise errors in t
 **NumPy: forward pass only.** NumPy provides no autograd wrappers and does not export `kabsch_rmsd` or `kabsch_umeyama_rmsd`.
 
 **float16 / bfloat16: variance division can overflow.** `kabsch_umeyama` and `horn_with_scale` divide by the point cloud variance. This overflows in half precision when inputs are near-collinear or collapsed to the origin. For production half-precision training, cast inputs to float32 before calling alignment functions.
+
+**float16 / bfloat16: accuracy is limited.** Half-precision forward passes are tested with atol=0.1 / rtol=0.1. Gradient verification is only performed at float64. For training stability, prefer float32 or higher.
+
+**MLX float64 runs on CPU.** Apple Silicon GPUs do not support true float64, so float64 ops are automatically routed to CPU. float32 and half-precision inputs use GPU acceleration as normal.
+
+**MLX: NaN inputs abort the process.** `mlx.linalg.svd` fatally terminates the process when given NaN inputs. Every other framework propagates NaN gracefully. Validate inputs before passing them to MLX alignment functions if NaN is possible in your pipeline.
 
 ## Extending the Cookbook
 
