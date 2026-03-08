@@ -30,7 +30,7 @@ class TestDegeneracy:
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
         R_res = adapter.convert_out(res[0])
@@ -44,7 +44,14 @@ class TestDegeneracy:
             assert np.isfinite(c_res)
 
 
-@pytest.mark.parametrize("collapse_target", ["P", "Q", "Both"])
+@pytest.mark.parametrize(
+    "collapse_target",
+    [
+        pytest.param("P", id="collapse-P"),
+        pytest.param("Q", id="collapse-Q"),
+        pytest.param("Both", id="collapse-Both"),
+    ],
+)
 @pytest.mark.parametrize("adapter", frameworks)
 class TestHornDegeneracy:
     """Forward-pass correctness for Horn under degenerate (collapsed) point clouds."""

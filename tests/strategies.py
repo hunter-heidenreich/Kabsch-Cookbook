@@ -7,7 +7,9 @@ _BOUNDED = {"allow_nan": False, "allow_infinity": False}
 
 
 @st.composite
-def point_clouds_nd(draw, dim=None, n_points=None):
+def point_clouds_nd(
+    draw: st.DrawFn, dim: int | None = None, n_points: int | None = None
+) -> np.ndarray:
     """Random N-D point cloud (float64, bounded, no NaN/inf)."""
     if dim is None:
         dim = draw(st.integers(2, 6))
@@ -23,18 +25,18 @@ def point_clouds_nd(draw, dim=None, n_points=None):
 
 
 @st.composite
-def point_clouds_3d(draw, n_points=None):
+def point_clouds_3d(draw: st.DrawFn, n_points: int | None = None) -> np.ndarray:
     """Random 3-D point cloud (float64, bounded, no NaN/inf)."""
     return draw(point_clouds_nd(dim=3, n_points=n_points))
 
 
 @st.composite
-def aligned_pair_3d(draw):
+def aligned_pair_3d(draw: st.DrawFn) -> tuple:
     """P + known proper rotation + translation = Q."""
     P = draw(point_clouds_3d())
-    seed = draw(st.integers(0, 2**31 - 1))
-    A = np.random.default_rng(seed).standard_normal((3, 3))
-    # QR of standard-normal matrix gives Haar-uniform rotation
+    _floats33 = st.floats(-3, 3, allow_nan=False, allow_infinity=False)
+    A = draw(arrays(np.float64, (3, 3), elements=_floats33))
+    # QR of a drawn matrix gives Haar-uniform rotation and supports Hypothesis shrinking
     Q_mat, _ = np.linalg.qr(A)
     if np.linalg.det(Q_mat) < 0:
         Q_mat[:, 0] *= -1
@@ -50,13 +52,18 @@ def aligned_pair_3d(draw):
 
 
 @st.composite
-def aligned_pair_nd(draw):
+def aligned_pair_nd(draw: st.DrawFn) -> tuple:
     """N-D version for kabsch/umeyama."""
     dim = draw(st.integers(2, 6))
     P = draw(point_clouds_nd(dim=dim))
-    seed = draw(st.integers(0, 2**31 - 1))
-    A = np.random.default_rng(seed).standard_normal((dim, dim))
-    # QR of standard-normal matrix gives Haar-uniform rotation
+    A = draw(
+        arrays(
+            np.float64,
+            (dim, dim),
+            elements=st.floats(-3, 3, allow_nan=False, allow_infinity=False),
+        )
+    )
+    # QR of a drawn matrix gives Haar-uniform rotation and supports Hypothesis shrinking
     Q_mat, _ = np.linalg.qr(A)
     if np.linalg.det(Q_mat) < 0:
         Q_mat[:, 0] *= -1
@@ -72,7 +79,7 @@ def aligned_pair_nd(draw):
 
 
 @st.composite
-def nearly_collinear_3d(draw):
+def nearly_collinear_3d(draw: st.DrawFn) -> np.ndarray:
     """3-D point cloud lying near a single line (small perpendicular noise)."""
     n = draw(st.integers(5, 20))
     direction = draw(arrays(np.float64, (3,), elements=st.floats(-10, 10, **_BOUNDED)))
@@ -90,7 +97,7 @@ def nearly_collinear_3d(draw):
 
 
 @st.composite
-def nearly_coplanar_nd(draw, dim=None):
+def nearly_coplanar_nd(draw: st.DrawFn, dim: int | None = None) -> np.ndarray:
     """N-D point cloud lying near a (dim-1) hyperplane (small normal noise)."""
     if dim is None:
         dim = draw(st.integers(3, 6))  # coplanar requires dim >= 3
@@ -107,7 +114,7 @@ def nearly_coplanar_nd(draw, dim=None):
 
 
 @st.composite
-def extreme_scale_cloud(draw):
+def extreme_scale_cloud(draw: st.DrawFn) -> tuple[np.ndarray, np.ndarray]:
     """Pair (P, Q) with very large or very small coordinate magnitudes."""
     dim = draw(st.integers(2, 6))
     n = draw(st.integers(dim + 2, dim * 4 + 4))

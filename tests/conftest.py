@@ -187,6 +187,10 @@ def pytest_collection_modifyitems(session, config, items) -> None:
     """
     Filters out tests where the requested framework adapter
     does not support the requested spatial dimension.
+
+    Note: Hypothesis tests parametrised by `adapter` but with `dim` drawn
+    inside `@given` are not filtered here -- they guard themselves with
+    `assume(adapter.supports_dim(dim))` inside the test body.
     """
     kept = []
     for item in items:

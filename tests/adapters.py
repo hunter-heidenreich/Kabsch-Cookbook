@@ -293,10 +293,9 @@ try:
             return tf.Variable(arr, dtype=dtype)
 
         def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
-            ret = obj.numpy()
-            if ret.dtype in (np.float16,):
-                ret = ret.astype(np.float32)
-            return ret
+            if obj.dtype in (tf.bfloat16, tf.float16):
+                obj = tf.cast(obj, tf.float32)
+            return obj.numpy()
 
         def kabsch(
             self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable

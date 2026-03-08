@@ -89,7 +89,7 @@ Point cloud alignments evaluated during neural network training often encounter 
 
 This cookbook addresses this directly. The autograd wrappers for PyTorch, JAX, TensorFlow, and MLX override their standard SVD and Eigh computational graphs, dynamically masking identical roots during backpropagation with epsilon factors.
 
-Gradient stability is not just claimed -- it is tested. Hypothesis property tests verify that gradients remain finite across coplanar, collinear, reflected, and collapsed inputs. A dedicated descent-direction test verifies that SafeSVD's masked gradients at near-degenerate inputs still reduce RMSD when used in a gradient step, rather than merely being finite. See [`tests/test_differentiability_traps.py`](tests/test_differentiability_traps.py) and [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py).
+Gradient stability is verified by the test suite. Hypothesis property tests confirm that gradients remain finite across coplanar, collinear, reflected, and collapsed inputs. A dedicated descent-direction test confirms that SafeSVD's masked gradients at near-degenerate inputs still reduce RMSD in a gradient step -- gradient accuracy against finite differences is also verified at float32 and float64. See [`tests/test_differentiability_traps.py`](tests/test_differentiability_traps.py) and [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py).
 
 ## Verified Properties
 
