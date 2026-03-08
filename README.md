@@ -165,6 +165,8 @@ Some inputs are fundamentally degenerate. The library does not raise errors in t
 
 **MLX float64 runs on CPU.** Apple Silicon GPUs do not support true float64, so float64 ops are automatically routed to CPU. float32 and half-precision inputs use GPU acceleration as normal.
 
+**JAX: double backward through kabsch/kabsch_umeyama is unsupported.** JAX's `custom_vjp` does not implement an SVD JVP, so `jax.grad(jax.grad(f))` through the Kabsch code path raises `NotImplementedError` upstream. Horn and horn_with_scale (eigh-based) support double backward in JAX without issue. TensorFlow, MLX, and PyTorch support double backward for all algorithms.
+
 **MLX: NaN inputs abort the process.** `mlx.linalg.svd` fatally terminates the process when given NaN inputs. Every other framework propagates NaN gracefully. Validate inputs before passing them to MLX alignment functions if NaN is possible in your pipeline.
 
 ## Extending the Cookbook
@@ -204,7 +206,7 @@ The test suite is organized around mathematical claims rather than code coverage
 | [`tests/test_forward_pass_equivalence.py`](tests/test_forward_pass_equivalence.py) | Identical outputs across all frameworks and precisions for the same input; correct batching across `[..., N, D]` shapes |
 | [`tests/test_properties.py`](tests/test_properties.py) | Output invariants (orthogonality, det=+1, RMSD >= 0), correctness invariants (RMSD definition, optimality, symmetry, rigid-transform invariance), and cross-algorithm consistency (kabsch = horn in 3D) |
 | [`tests/test_differentiability_traps.py`](tests/test_differentiability_traps.py) | Gradient finiteness across all documented degenerate cases; descent direction at singularities |
-| [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py) | Analytic gradients match finite differences (deterministic inputs at float32 + float64; Hypothesis-varied inputs at float64 only); batched gradients match sequential; SafeSVD descent at near-degenerate inputs; double backward (PyTorch, float32 + float64) |
+| [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py) | Analytic gradients match finite differences (deterministic inputs at float32 + float64; Hypothesis-varied inputs at float64 only); batched gradients match sequential; SafeSVD descent at near-degenerate inputs; double backward (PyTorch, TensorFlow, MLX: all algorithms; JAX: Horn only) |
 | [`tests/test_degeneracy.py`](tests/test_degeneracy.py) | Forward-pass validity under extreme degeneracy (origin collapse, collinear, coplanar, underdetermined) |
 | [`tests/test_catastrophic_cancellation.py`](tests/test_catastrophic_cancellation.py) | Numerical stability at extreme coordinate magnitudes (1e-6 to 1e6) |
 | [`tests/test_error_handling.py`](tests/test_error_handling.py) | Correct exceptions for mismatched shapes, wrong dimensions, and invalid inputs |
