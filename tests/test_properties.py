@@ -255,3 +255,113 @@ class TestKabschRecoveryND:
         np.testing.assert_allclose(
             float(adapter.convert_out(rmsd)), 0.0, atol=adapter.atol * 100
         )
+
+
+_PAIR_SETTINGS = settings(
+    max_examples=100,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+    deadline=None,
+)
+_paired_clouds_nd = st.integers(2, 6).flatmap(
+    lambda d: st.integers(d + 2, d * 4 + 4).flatmap(
+        lambda n: st.tuples(
+            point_clouds_nd(dim=d, n_points=n), point_clouds_nd(dim=d, n_points=n)
+        )
+    )
+)
+
+
+class TestAlignmentInvariants:
+    """Mathematical invariants that must hold for all valid inputs (numpy-only)."""
+
+    @_NUMPY_SETTINGS
+    @given(_paired_clouds_nd)
+    def test_rmsd_equals_transform_residual(self, PQ: tuple) -> None:
+        """kabsch RMSD equals the Frobenius residual of the returned transform."""
+        P_np, Q_np = PQ
+        n = P_np.shape[0]
+        R, t, rmsd = kabsch_np.kabsch(P_np, Q_np)
+        residual = np.linalg.norm(P_np @ R.T + t - Q_np) / np.sqrt(n)
+        np.testing.assert_allclose(float(rmsd), residual, atol=1e-8)
+
+    @_NUMPY_SETTINGS
+    @given(_paired_clouds_nd)
+    def test_kabsch_rmsd_is_symmetric(self, PQ: tuple) -> None:
+        """RMSD is the same when aligning P->Q and Q->P."""
+        P_np, Q_np = PQ
+        _, _, rmsd_fwd = kabsch_np.kabsch(P_np, Q_np)
+        _, _, rmsd_bwd = kabsch_np.kabsch(Q_np, P_np)
+        np.testing.assert_allclose(float(rmsd_fwd), float(rmsd_bwd), atol=1e-8)
+
+    @_NUMPY_SETTINGS
+    @given(aligned_pair_nd())
+    def test_rmsd_invariant_to_rigid_transform(self, aligned: tuple) -> None:
+        """RMSD is unchanged when both P and Q undergo the same rigid transform."""
+        P_np, _, _, Q_np, dim = aligned
+        rng = np.random.default_rng(99)
+        A = rng.standard_normal((dim, dim))
+        S, _ = np.linalg.qr(A)
+        if np.linalg.det(S) < 0:
+            S[:, 0] *= -1
+        u = rng.standard_normal(dim)
+        _, _, rmsd_orig = kabsch_np.kabsch(P_np, Q_np)
+        _, _, rmsd_shifted = kabsch_np.kabsch(P_np @ S.T + u, Q_np @ S.T + u)
+        np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-6)
+
+    @_PAIR_SETTINGS
+    @given(_paired_clouds_nd)
+    def test_r_invariant_to_translation(self, PQ: tuple) -> None:
+        """Rotation R is unchanged when both P and Q are shifted by the same vector."""
+        P_np, Q_np = PQ
+        dim = P_np.shape[-1]
+        H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
+        sv_H = np.linalg.svd(H, compute_uv=False)
+        assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
+        v = np.random.default_rng(55).standard_normal(dim)
+        R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
+        R2, _, _ = kabsch_np.kabsch(P_np + v, Q_np + v)
+        np.testing.assert_allclose(R1, R2, atol=1e-6)
+
+    @_PAIR_SETTINGS
+    @given(_paired_clouds_nd, st.floats(0.1, 10.0))
+    def test_r_invariant_to_uniform_scale(self, PQ: tuple, c: float) -> None:
+        """Rotation R is unchanged when both P and Q are scaled by the same scalar."""
+        P_np, Q_np = PQ
+        H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
+        sv_H = np.linalg.svd(H, compute_uv=False)
+        assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
+        R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
+        R2, _, _ = kabsch_np.kabsch(P_np * c, Q_np * c)
+        np.testing.assert_allclose(R1, R2, atol=1e-6)
+
+    @_NUMPY_SETTINGS
+    @given(
+        aligned_pair_nd(),
+        st.floats(0.5, 3.0, allow_nan=False, allow_infinity=False),
+    )
+    def test_umeyama_recovers_exact_scale(self, aligned: tuple, c_true: float) -> None:
+        """kabsch_umeyama recovers the known scale factor exactly."""
+        P_np, R_true, t_true, _, _dim = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        Q_np = c_true * (P_np @ R_true.T) + t_true
+        _, _, c, rmsd = kabsch_np.kabsch_umeyama(P_np, Q_np)
+        np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
+        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
+
+    @_NUMPY_SETTINGS
+    @given(
+        aligned_pair_3d(),
+        st.floats(0.5, 3.0, allow_nan=False, allow_infinity=False),
+    )
+    def test_horn_with_scale_recovers_exact_scale(
+        self, aligned: tuple, c_true: float
+    ) -> None:
+        """horn_with_scale recovers the known scale factor exactly."""
+        P_np, R_true, t_true, _ = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        Q_np = c_true * (P_np @ R_true.T) + t_true
+        _, _, c, rmsd = kabsch_np.horn_with_scale(P_np, Q_np)
+        np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
+        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)

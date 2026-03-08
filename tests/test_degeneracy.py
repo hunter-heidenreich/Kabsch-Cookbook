@@ -41,5 +41,85 @@ class TestDegeneracy:
         # Scale check for Umeyama
         if algo == "umeyama":
             c_res = float(adapter.convert_out(res[2]))
-            if collapse_target in ["P", "Q", "Both"]:
-                assert np.isfinite(c_res)
+            assert np.isfinite(c_res)
+
+
+@pytest.mark.parametrize("collapse_target", ["P", "Q", "Both"])
+@pytest.mark.parametrize("adapter", frameworks)
+class TestHornDegeneracy:
+    """Forward-pass correctness for Horn under degenerate (collapsed) point clouds."""
+
+    def test_origin_collapse_returns_valid_rotation(
+        self,
+        adapter: FrameworkAdapter,
+        collapse_target: str,
+    ) -> None:
+        rng = np.random.default_rng(42)
+        P_np = rng.standard_normal((20, 3))
+        Q_np = rng.standard_normal((20, 3))
+        if collapse_target in ["P", "Both"]:
+            P_np = np.zeros_like(P_np)
+        if collapse_target in ["Q", "Both"]:
+            Q_np = np.zeros_like(Q_np)
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, _t, rmsd = adapter.horn(P, Q)
+        R_np = adapter.convert_out(R)
+        assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
+        assert np.linalg.det(R_np) > 0
+        assert np.isfinite(adapter.convert_out(rmsd))
+
+    def test_origin_collapse_with_scale_returns_finite(
+        self,
+        adapter: FrameworkAdapter,
+        collapse_target: str,
+    ) -> None:
+        rng = np.random.default_rng(42)
+        P_np = rng.standard_normal((20, 3))
+        Q_np = rng.standard_normal((20, 3))
+        if collapse_target in ["P", "Both"]:
+            P_np = np.zeros_like(P_np)
+        if collapse_target in ["Q", "Both"]:
+            Q_np = np.zeros_like(Q_np)
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, _t, c, rmsd = adapter.horn_with_scale(P, Q)
+        R_np = adapter.convert_out(R)
+        assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
+        assert np.linalg.det(R_np) > 0
+        assert np.isfinite(adapter.convert_out(c))
+        assert np.isfinite(adapter.convert_out(rmsd))
+
+
+@pytest.mark.parametrize("adapter", frameworks)
+class TestHornDegeneracyGeometric:
+    """Forward-pass correctness for Horn on collinear and coplanar inputs."""
+
+    def test_collinear_inputs_return_valid_rotation(
+        self,
+        adapter: FrameworkAdapter,
+    ) -> None:
+        P_np = np.zeros((20, 3))
+        P_np[:, 0] = np.linspace(-5, 5, 20)
+        Q_np = P_np.copy()
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, _t, _rmsd = adapter.horn(P, Q)
+        R_np = adapter.convert_out(R)
+        assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
+        assert np.linalg.det(R_np) > 0
+
+    def test_coplanar_inputs_return_valid_rotation(
+        self,
+        adapter: FrameworkAdapter,
+    ) -> None:
+        rng = np.random.default_rng(7)
+        P_np = rng.standard_normal((20, 3))
+        P_np[:, 2] = 0.0
+        Q_np = P_np.copy()
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        R, _t, _rmsd = adapter.horn(P, Q)
+        R_np = adapter.convert_out(R)
+        assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
+        assert np.linalg.det(R_np) > 0

@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
+from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import strategies as st
+from strategies import point_clouds_3d
 from utils import compute_numeric_grad
 
 
@@ -157,6 +160,45 @@ class TestGradientVerification:
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
 
+    @settings(
+        max_examples=30,
+        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+        deadline=None,
+    )
+    @given(point_clouds_3d(), st.integers(0, 2**31 - 1))
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_match_finite_differences_hypothesis(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+        P_np: np.ndarray,
+        seed: int,
+    ) -> None:
+        """Compares analytic vs finite-difference gradients on Hypothesis inputs."""
+        assume(adapter.supports_dim(3))
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-1)
+        rng = np.random.default_rng(seed)
+        Q_np = (P_np + rng.standard_normal(P_np.shape)).astype(np.float64)
+
+        P_fw = adapter.convert_in(P_np)
+        Q_fw = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+        ref_adapter = type(adapter)("float64")
+        func_ref = ref_adapter.get_transform_func(algo)
+
+        grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
+        grad_numeric = compute_numeric_grad(
+            P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
+        )
+
+        np.testing.assert_allclose(
+            grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
+        )
+
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     def test_computes_double_backward_when_using_pytorch(
         self,
@@ -278,6 +320,44 @@ class TestHornGradientVerification:
 
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
+        )
+
+    @settings(
+        max_examples=30,
+        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+        deadline=None,
+    )
+    @given(point_clouds_3d(), st.integers(0, 2**31 - 1))
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_gradients_match_finite_differences_hypothesis(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        wrt: str,
+        P_np: np.ndarray,
+        seed: int,
+    ) -> None:
+        """Compares Horn analytic vs finite-difference gradients (Hypothesis-varied)."""
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-1)
+        rng = np.random.default_rng(seed)
+        Q_np = (P_np + rng.standard_normal(P_np.shape)).astype(np.float64)
+
+        P_fw = adapter.convert_in(P_np)
+        Q_fw = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+        ref_adapter = type(adapter)("float64")
+        func_ref = ref_adapter.get_transform_func(algo)
+
+        grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
+        grad_numeric = compute_numeric_grad(
+            P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
+        )
+
+        np.testing.assert_allclose(
+            grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
         )
 
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])

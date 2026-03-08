@@ -3,54 +3,13 @@ from typing import TypeAlias
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
-from utils import check_transform_close
+from utils import check_transform_close, compute_sequential_expected_tensors
 
 from kabsch_horn import numpy as kabsch_np
 
 KnownTransformT: TypeAlias = tuple[
     np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, float
 ]
-
-
-def _compute_sequential_expected_tensors(
-    P_np: np.ndarray,
-    Q_np: np.ndarray,
-    adapter: FrameworkAdapter,
-    algo: str,
-) -> list[np.ndarray]:
-    """Computes expected batched outputs by running sequential computations.
-
-    Args:
-        P_np: Input N-D point cloud array.
-        Q_np: Target N-D point cloud array.
-        adapter: The framework adapter to use.
-        algo: Algorithm to use ('kabsch' or 'umeyama').
-
-    Returns:
-        List of concatenated numpy arrays matching batched output structure.
-    """
-    func = adapter.get_transform_func(algo)
-    b0, b1 = P_np.shape[0], P_np.shape[1]
-
-    expected_res = []
-    for i in range(b0):
-        row_res = []
-        for j in range(b1):
-            P_seq = adapter.convert_in(P_np[i, j])
-            Q_seq = adapter.convert_in(Q_np[i, j])
-            seq_res = func(P_seq, Q_seq)
-            row_res.append([adapter.convert_out(tensor) for tensor in seq_res])
-        expected_res.append(row_res)
-
-    num_tensors = len(expected_res[0][0])
-    expected_tensors = []
-    for t_idx in range(num_tensors):
-        expected_tensor_list = [
-            [expected_res[i][j][t_idx] for j in range(b1)] for i in range(b0)
-        ]
-        expected_tensors.append(np.array(expected_tensor_list))
-
-    return expected_tensors
 
 
 def _kabsch_numpy_adapter(P: np.ndarray, Q: np.ndarray):
@@ -254,7 +213,7 @@ class TestForwardPassEquivalence:
             algo: The algorithm to test ('kabsch' or 'umeyama').
         """
         P_np, Q_np = nd_batch_points
-        expected_tensors = _compute_sequential_expected_tensors(
+        expected_tensors = compute_sequential_expected_tensors(
             P_np, Q_np, adapter, algo
         )
 
@@ -272,6 +231,39 @@ class TestForwardPassEquivalence:
                 rel=adapter.rtol,
                 abs=adapter.atol,
             )
+
+    @pytest.mark.parametrize(
+        "algo",
+        [
+            pytest.param("kabsch", id="kabsch"),
+            pytest.param("umeyama", id="umeyama"),
+        ],
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_forward_pass_matches_sequential_computation_when_batched(
+        self,
+        batch_points: tuple[np.ndarray, np.ndarray],
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """Verifies [B, N, D] batched forward passes match sequential computation."""
+        P_np, Q_np = batch_points
+        func = adapter.get_transform_func(algo)
+
+        P_fw = adapter.convert_in(P_np)
+        Q_fw = adapter.convert_in(Q_np)
+        batch_res = func(P_fw, Q_fw)
+        batch_tensors = [adapter.convert_out(t) for t in batch_res]
+
+        seq_res = [
+            func(adapter.convert_in(P_np[i]), adapter.convert_in(Q_np[i]))
+            for i in range(P_np.shape[0])
+        ]
+        for t_idx, actual in enumerate(batch_tensors):
+            expected = np.stack(
+                [adapter.convert_out(seq_res[i][t_idx]) for i in range(P_np.shape[0])]
+            )
+            assert actual == pytest.approx(expected, rel=adapter.rtol, abs=adapter.atol)
 
     @pytest.mark.parametrize(
         "algo, q_expected_idx",
@@ -461,7 +453,7 @@ class TestHornForwardPassEquivalence:
         algo: str,
     ) -> None:
         P_np, Q_np = horn_nd_batch_points
-        expected_tensors = _compute_sequential_expected_tensors(
+        expected_tensors = compute_sequential_expected_tensors(
             P_np, Q_np, adapter, algo
         )
 
@@ -473,6 +465,39 @@ class TestHornForwardPassEquivalence:
         actual_tensors = [adapter.convert_out(t) for t in batch_res]
 
         for actual, expected in zip(actual_tensors, expected_tensors, strict=True):
+            assert actual == pytest.approx(expected, rel=adapter.rtol, abs=adapter.atol)
+
+    @pytest.mark.parametrize(
+        "algo",
+        [
+            pytest.param("horn", id="horn"),
+            pytest.param("horn_with_scale", id="horn_with_scale"),
+        ],
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_forward_pass_matches_sequential_computation_when_batched(
+        self,
+        horn_batch_points: tuple[np.ndarray, np.ndarray],
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """Verifies [B, N, 3] batched Horn passes match sequential computation."""
+        P_np, Q_np = horn_batch_points
+        func = adapter.get_transform_func(algo)
+
+        P_fw = adapter.convert_in(P_np)
+        Q_fw = adapter.convert_in(Q_np)
+        batch_res = func(P_fw, Q_fw)
+        batch_tensors = [adapter.convert_out(t) for t in batch_res]
+
+        seq_res = [
+            func(adapter.convert_in(P_np[i]), adapter.convert_in(Q_np[i]))
+            for i in range(P_np.shape[0])
+        ]
+        for t_idx, actual in enumerate(batch_tensors):
+            expected = np.stack(
+                [adapter.convert_out(seq_res[i][t_idx]) for i in range(P_np.shape[0])]
+            )
             assert actual == pytest.approx(expected, rel=adapter.rtol, abs=adapter.atol)
 
     @pytest.mark.parametrize(
