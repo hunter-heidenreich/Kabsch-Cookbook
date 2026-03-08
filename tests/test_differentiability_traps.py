@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, assume, given, settings
 from strategies import extreme_scale_cloud, nearly_collinear_3d, nearly_coplanar_nd
 
 
@@ -281,20 +281,15 @@ class TestDifferentiabilityTraps:
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-        deadline=None,
-    )
-    @given(nearly_collinear_3d())
     def test_gradients_stable_nearly_collinear_hypothesis(
         self,
         adapter: FrameworkAdapter,
         wrt: str,
         algo: str,
-        P_np: np.ndarray,
     ) -> None:
         """Gradients remain finite for near-collinear point clouds (Hypothesis)."""
+        # Skip before Hypothesis generates any examples -- condition is purely
+        # parametric (algo + precision), never data-dependent.
         if algo == "umeyama" and getattr(adapter, "precision", "float64") in (
             "float16",
             "bfloat16",
@@ -303,12 +298,65 @@ class TestDifferentiabilityTraps:
                 "Umeyama requires division by variance, which can overflow float16 "
                 "on near-collinear inputs."
             )
-        Q_np = P_np.copy()
-        P = adapter.convert_in(P_np.astype(np.float64))
-        Q = adapter.convert_in(Q_np.astype(np.float64))
-        func = adapter.get_transform_func(algo)
-        grad = adapter.get_grad(P, Q, func, wrt=wrt)
-        assert np.all(np.isfinite(grad))
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(nearly_collinear_3d())
+        def _inner(P_np: np.ndarray) -> None:
+            Q_np = P_np.copy()
+            P = adapter.convert_in(P_np.astype(np.float64))
+            Q = adapter.convert_in(Q_np.astype(np.float64))
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
+
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    def test_gradients_stable_nearly_collinear_different_clouds(
+        self,
+        adapter: FrameworkAdapter,
+        wrt: str,
+        algo: str,
+    ) -> None:
+        """Gradients remain finite when P != Q are both near-collinear (Hypothesis).
+
+        Compared to test_gradients_stable_nearly_collinear_hypothesis (which sets
+        Q = P), this test draws P and Q independently so that the cross-covariance H
+        is rank-1 but non-zero -- the realistic hard case SafeSVD is designed for.
+        """
+        if algo == "umeyama" and getattr(adapter, "precision", "float64") in (
+            "float16",
+            "bfloat16",
+        ):
+            pytest.skip(
+                "Umeyama requires division by variance, which can overflow float16 "
+                "on near-collinear inputs."
+            )
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(nearly_collinear_3d(), nearly_collinear_3d())
+        def _inner(P_np: np.ndarray, Q_np: np.ndarray) -> None:
+            # Truncate to the shorter cloud so P and Q have the same number of points.
+            n = min(P_np.shape[0], Q_np.shape[0])
+            P_np_t = P_np[:n]
+            Q_np_t = Q_np[:n]
+            P = adapter.convert_in(P_np_t.astype(np.float64))
+            Q = adapter.convert_in(Q_np_t.astype(np.float64))
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
 
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
@@ -327,8 +375,8 @@ class TestDifferentiabilityTraps:
         P_np: np.ndarray,
     ) -> None:
         """Gradients remain finite for near-coplanar point clouds (Hypothesis)."""
-        if not adapter.supports_dim(P_np.shape[-1]):
-            pytest.skip(f"adapter does not support dim={P_np.shape[-1]}")
+        # dim is drawn data -- use assume() to filter, not pytest.skip().
+        assume(adapter.supports_dim(P_np.shape[-1]))
         Q_np = P_np.copy()
         P = adapter.convert_in(P_np.astype(np.float64))
         Q = adapter.convert_in(Q_np.astype(np.float64))
@@ -339,30 +387,34 @@ class TestDifferentiabilityTraps:
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-        deadline=None,
-    )
-    @given(extreme_scale_cloud())
     def test_gradients_stable_extreme_scale_hypothesis(
         self,
         adapter: FrameworkAdapter,
         wrt: str,
         algo: str,
-        PQ: tuple,
     ) -> None:
         """Gradients remain finite for extreme-scale point clouds (Hypothesis)."""
+        # Precision check is parametric -- skip before Hypothesis generates examples.
         if getattr(adapter, "precision", "float64") not in ("float32", "float64"):
             pytest.skip("extreme scale unsafe for float16/bfloat16")
-        P_np, Q_np = PQ
-        if not adapter.supports_dim(P_np.shape[-1]):
-            pytest.skip(f"adapter does not support dim={P_np.shape[-1]}")
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        func = adapter.get_transform_func(algo)
-        grad = adapter.get_grad(P, Q, func, wrt=wrt)
-        assert np.all(np.isfinite(grad))
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(extreme_scale_cloud())
+        def _inner(PQ: tuple) -> None:
+            P_np, Q_np = PQ
+            # dim is drawn data -- use assume() to filter, not pytest.skip().
+            assume(adapter.supports_dim(P_np.shape[-1]))
+            P = adapter.convert_in(P_np)
+            Q = adapter.convert_in(Q_np)
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
 
 
 class TestHornDifferentiabilityTraps:
@@ -518,20 +570,15 @@ class TestHornDifferentiabilityTraps:
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-        deadline=None,
-    )
-    @given(nearly_collinear_3d())
     def test_gradients_stable_nearly_collinear_hypothesis(
         self,
         adapter: FrameworkAdapter,
         wrt: str,
         algo: str,
-        P_np: np.ndarray,
     ) -> None:
         """Horn gradients remain finite for near-collinear point clouds (Hypothesis)."""
+        # Skip before Hypothesis generates any examples -- condition is purely
+        # parametric (algo + precision), never data-dependent.
         if algo == "horn_with_scale" and getattr(adapter, "precision", "float64") in (
             "float16",
             "bfloat16",
@@ -540,45 +587,59 @@ class TestHornDifferentiabilityTraps:
                 "Horn-with-scale variance division overflows float16 "
                 "on near-collinear inputs."
             )
-        Q_np = P_np.copy()
-        P = adapter.convert_in(P_np.astype(np.float64))
-        Q = adapter.convert_in(Q_np.astype(np.float64))
-        func = adapter.get_transform_func(algo)
-        grad = adapter.get_grad(P, Q, func, wrt=wrt)
-        assert np.all(np.isfinite(grad))
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(nearly_collinear_3d())
+        def _inner(P_np: np.ndarray) -> None:
+            Q_np = P_np.copy()
+            P = adapter.convert_in(P_np.astype(np.float64))
+            Q = adapter.convert_in(Q_np.astype(np.float64))
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
 
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-        deadline=None,
-    )
-    @given(extreme_scale_cloud())
     def test_gradients_stable_extreme_scale_hypothesis(
         self,
         adapter: FrameworkAdapter,
         wrt: str,
         algo: str,
-        PQ: tuple,
     ) -> None:
         """Horn gradients remain finite for extreme-scale point clouds (Hypothesis)."""
+        # Precision check is parametric -- skip before Hypothesis generates examples.
         if getattr(adapter, "precision", "float64") not in ("float32", "float64"):
             pytest.skip("extreme scale unsafe for float16/bfloat16")
-        P_np, Q_np = PQ
-        P_np = P_np[:, :3] if P_np.shape[-1] > 3 else P_np
-        Q_np = Q_np[:, :3] if Q_np.shape[-1] > 3 else Q_np
-        # Pad to 3D if needed
-        if P_np.shape[-1] < 3:
-            n_pad = 3 - P_np.shape[-1]
-            P_np = np.concatenate([P_np, np.zeros((P_np.shape[0], n_pad))], axis=-1)
-            Q_np = np.concatenate([Q_np, np.zeros((Q_np.shape[0], n_pad))], axis=-1)
-        P = adapter.convert_in(P_np.astype(np.float64))
-        Q = adapter.convert_in(Q_np.astype(np.float64))
-        func = adapter.get_transform_func(algo)
-        grad = adapter.get_grad(P, Q, func, wrt=wrt)
-        assert np.all(np.isfinite(grad))
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(extreme_scale_cloud())
+        def _inner(PQ: tuple) -> None:
+            P_np, Q_np = PQ
+            P_np = P_np[:, :3] if P_np.shape[-1] > 3 else P_np
+            Q_np = Q_np[:, :3] if Q_np.shape[-1] > 3 else Q_np
+            # Pad to 3D if needed
+            if P_np.shape[-1] < 3:
+                n_pad = 3 - P_np.shape[-1]
+                P_np = np.concatenate([P_np, np.zeros((P_np.shape[0], n_pad))], axis=-1)
+                Q_np = np.concatenate([Q_np, np.zeros((Q_np.shape[0], n_pad))], axis=-1)
+            P = adapter.convert_in(P_np.astype(np.float64))
+            Q = adapter.convert_in(Q_np.astype(np.float64))
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
 
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])

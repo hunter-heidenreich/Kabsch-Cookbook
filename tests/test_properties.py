@@ -7,6 +7,7 @@ from hypothesis.extra.numpy import arrays
 from strategies import (
     aligned_pair_3d,
     aligned_pair_nd,
+    nearly_collinear_3d,
     point_clouds_3d,
     point_clouds_nd,
 )
@@ -166,6 +167,25 @@ class TestCrossAlgorithmConsistency:
         np.testing.assert_allclose(float(rmsd_u), float(rmsd_h), atol=1e-5)
 
     @_NUMPY_SETTINGS
+    @given(aligned_pair_nd())
+    def test_umeyama_equals_kabsch_when_no_scale_change(self, aligned: tuple) -> None:
+        """When true scale is 1, Umeyama's extra DOF should not hurt: R, t match Kabsch.
+
+        aligned_pair_nd() produces Q = P @ R_true.T + t with no scale change, so the
+        optimal Umeyama scale is 1. This test makes that cross-algorithm consistency
+        property explicit and citable.
+        """
+        P_np, _, _, Q_np, _ = aligned
+        P_c = P_np - P_np.mean(0)
+        sv = np.linalg.svd(P_c, compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        R_k, t_k, _ = kabsch_np.kabsch(P_np, Q_np)
+        R_u, t_u, c_u, _ = kabsch_np.kabsch_umeyama(P_np, Q_np)
+        np.testing.assert_allclose(R_u, R_k, atol=1e-5)
+        np.testing.assert_allclose(t_u, t_k, atol=1e-5)
+        np.testing.assert_allclose(float(c_u), 1.0, atol=1e-5)
+
+    @_NUMPY_SETTINGS
     @given(aligned_pair_3d())
     def test_kabsch_recovers_known_rotation(self, aligned: tuple) -> None:
         P_np, R_true, t_true, Q_np = aligned
@@ -261,6 +281,11 @@ _PAIR_SETTINGS = settings(
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
+_NUMPY_FILTER_SETTINGS = settings(
+    max_examples=100,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+    deadline=None,
+)
 
 
 @st.composite
@@ -307,13 +332,15 @@ class TestAlignmentInvariants:
         _, _, rmsd_bwd = kabsch_np.kabsch(Q_np, P_np)
         np.testing.assert_allclose(float(rmsd_fwd), float(rmsd_bwd), atol=1e-8)
 
-    @_NUMPY_SETTINGS
-    @given(aligned_pair_nd(), st.integers(0, 2**31 - 1))
-    def test_rmsd_invariant_to_rigid_transform(
-        self, aligned: tuple, rng_seed: int
-    ) -> None:
+    @_NUMPY_FILTER_SETTINGS
+    @given(_paired_clouds_nd_composite(), st.integers(0, 2**31 - 1))
+    def test_rmsd_invariant_to_rigid_transform(self, PQ: tuple, rng_seed: int) -> None:
         """RMSD is unchanged when both P and Q undergo the same rigid transform."""
-        P_np, _, _, Q_np, dim = aligned
+        P_np, Q_np, dim = PQ
+        # Require H to be well-conditioned so RMSD is non-trivially non-zero.
+        H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
+        sv_H = np.linalg.svd(H, compute_uv=False)
+        assume(sv_H[-1] > 1e-3)
         rng = np.random.default_rng(rng_seed)
         A = rng.standard_normal((dim, dim))
         S, _ = np.linalg.qr(A)
@@ -362,6 +389,41 @@ class TestAlignmentInvariants:
         _, _, c, rmsd = kabsch_np.kabsch_umeyama(P_np, Q_np)
         np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
         np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
+
+    @_NUMPY_FILTER_SETTINGS
+    @given(nearly_collinear_3d())
+    def test_rotation_is_not_unique_when_cross_covariance_is_degenerate(
+        self, P_np: np.ndarray
+    ) -> None:
+        """Kabsch completes without error even when rotation is ambiguous.
+
+        A near-collinear point cloud yields a near rank-1 cross-covariance H. The
+        optimal rotation is not unique in this case: any rotation around the collinear
+        axis achieves the same RMSD. This is the primary algorithm boundary users
+        should be aware of -- SafeSVD produces a finite, stable (if arbitrary) rotation
+        in this regime, but gradient-based optimizers should not rely on it to be the
+        unique minimizer.
+        """
+        Q_np = P_np + np.random.default_rng(0).random(P_np.shape) * 0.5
+
+        # kabsch must complete without raising and return valid outputs.
+        R, t, rmsd = kabsch_np.kabsch(P_np, Q_np)
+        assert np.isfinite(R).all()
+        assert np.isfinite(t).all()
+        assert np.isfinite(float(rmsd))
+        assert np.linalg.det(R) == pytest.approx(1.0, abs=1e-6)
+
+        # Perturb P along the dominant direction and verify kabsch still succeeds.
+        direction = P_np[-1] - P_np[0]
+        norm = np.linalg.norm(direction)
+        assume(norm > 1e-10)
+        direction = direction / norm
+        P_perturbed = P_np + direction * 0.01
+
+        R2, t2, rmsd2 = kabsch_np.kabsch(P_perturbed, Q_np)
+        assert np.isfinite(R2).all()
+        assert np.isfinite(t2).all()
+        assert np.isfinite(float(rmsd2))
 
     @_NUMPY_SETTINGS
     @given(

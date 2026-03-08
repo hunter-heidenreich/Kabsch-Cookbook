@@ -93,7 +93,7 @@ def nearly_collinear_3d(draw):
 def nearly_coplanar_nd(draw, dim=None):
     """N-D point cloud lying near a (dim-1) hyperplane (small normal noise)."""
     if dim is None:
-        dim = draw(st.integers(2, 6))
+        dim = draw(st.integers(3, 6))  # coplanar requires dim >= 3
     n = draw(st.integers(dim + 2, dim * 4 + 4))
     P = draw(arrays(np.float64, (n, dim), elements=st.floats(-10, 10, **_BOUNDED)))
     noise_scale = draw(st.floats(1e-4, 1e-2))
