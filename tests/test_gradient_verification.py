@@ -207,10 +207,12 @@ class TestGradientVerification:
             grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
         )
 
+    @pytest.mark.parametrize("precision", ["float32", "float64"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     def test_computes_double_backward_when_using_pytorch(
         self,
         algo: str,
+        precision: str,
     ) -> None:
         """
         Validates PyTorch implementation supports double backward (meta-learning).
@@ -220,9 +222,10 @@ class TestGradientVerification:
         import torch
         from adapters import PyTorchAdapter
 
-        P = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
-        Q = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
-        adapter = PyTorchAdapter(precision="float64")
+        adapter = PyTorchAdapter(precision=precision)
+        dtype = adapter._DTYPE_MAP[precision]
+        P = torch.rand((5, 3), dtype=dtype, requires_grad=True)
+        Q = torch.rand((5, 3), dtype=dtype, requires_grad=True)
         func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
@@ -448,18 +451,21 @@ class TestHornGradientVerification:
             grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
         )
 
+    @pytest.mark.parametrize("precision", ["float32", "float64"])
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
     def test_double_backward_pytorch(
         self,
         algo: str,
+        precision: str,
     ) -> None:
         """PyTorch-only: validates Horn supports double backward (create_graph=True)."""
         import torch
         from adapters import PyTorchAdapter
 
-        P = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
-        Q = torch.rand((5, 3), dtype=torch.float64, requires_grad=True)
-        adapter = PyTorchAdapter(precision="float64")
+        adapter = PyTorchAdapter(precision=precision)
+        dtype = adapter._DTYPE_MAP[precision]
+        P = torch.rand((5, 3), dtype=dtype, requires_grad=True)
+        Q = torch.rand((5, 3), dtype=dtype, requires_grad=True)
         func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
