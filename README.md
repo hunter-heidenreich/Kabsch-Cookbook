@@ -147,7 +147,7 @@ SafeSVD and SafeEigh override the standard backward pass to mask near-zero singu
 | Collapse to origin | Finite gradient | [`test_gradients_are_stable_when_points_collapse_to_origin`](tests/test_differentiability_traps.py) |
 | Near-collinear or coplanar (Hypothesis, descent) | $\text{RMSD}(P - \alpha \nabla, Q) \leq \text{RMSD}(P, Q) + 0.1$ | [`test_safe_svd_gradient_reduces_rmsd_at_hypothesis_near_degenerate`](tests/test_gradient_verification.py) |
 
-"Descent direction" means one gradient step with $\alpha = 0.01$ does not increase RMSD by more than 0.1. The loose tolerance is intentional -- the guarantee is non-increase, not numerical precision. Gradient accuracy against finite differences is verified for float64 in [`test_gradients_match_finite_differences_hypothesis`](tests/test_gradient_verification.py).
+"Descent direction" means one gradient step with $\alpha = 0.01$ does not increase RMSD by more than 0.1. The loose tolerance is intentional -- the guarantee is non-increase, not numerical precision. Gradient accuracy against finite differences is verified at float32 and float64 via deterministic inputs in [`test_gradients_match_finite_differences_when_perturbed`](tests/test_gradient_verification.py) and [`test_gradients_match_finite_differences_when_purely_random`](tests/test_gradient_verification.py). Hypothesis-varied FD checks run at float64 only, where the tolerance is tight enough to be meaningful.
 
 ### Known algorithm boundaries
 
@@ -161,7 +161,7 @@ Some inputs are fundamentally degenerate. The library does not raise errors in t
 
 **float16 / bfloat16: variance division can overflow.** `kabsch_umeyama` and `horn_with_scale` divide by the point cloud variance. This overflows in half precision when inputs are near-collinear or collapsed to the origin. For production half-precision training, cast inputs to float32 before calling alignment functions.
 
-**float16 / bfloat16: accuracy is limited.** Half-precision forward passes are tested with atol=0.1 / rtol=0.1. Gradient verification is only performed at float64. For training stability, prefer float32 or higher.
+**float16 / bfloat16: accuracy is limited.** Half-precision forward passes are tested with atol=0.1 / rtol=0.1. Deterministic finite-difference gradient checks are skipped for float16/bfloat16 because the effective tolerance (atol * 50 = 5.0) is too loose to be meaningful. For training stability, prefer float32 or higher.
 
 **MLX float64 runs on CPU.** Apple Silicon GPUs do not support true float64, so float64 ops are automatically routed to CPU. float32 and half-precision inputs use GPU acceleration as normal.
 
@@ -204,7 +204,7 @@ The test suite is organized around mathematical claims rather than code coverage
 | [`tests/test_forward_pass_equivalence.py`](tests/test_forward_pass_equivalence.py) | Identical outputs across all frameworks and precisions for the same input; correct batching across `[..., N, D]` shapes |
 | [`tests/test_properties.py`](tests/test_properties.py) | Output invariants (orthogonality, det=+1, RMSD >= 0), correctness invariants (RMSD definition, optimality, symmetry, rigid-transform invariance), and cross-algorithm consistency (kabsch = horn in 3D) |
 | [`tests/test_differentiability_traps.py`](tests/test_differentiability_traps.py) | Gradient finiteness across all documented degenerate cases; descent direction at singularities |
-| [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py) | Analytic gradients match finite differences (float64); batched gradients match sequential; SafeSVD descent at near-degenerate inputs; double backward (PyTorch) |
+| [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py) | Analytic gradients match finite differences (deterministic inputs at float32 + float64; Hypothesis-varied inputs at float64 only); batched gradients match sequential; SafeSVD descent at near-degenerate inputs; double backward (PyTorch) |
 | [`tests/test_degeneracy.py`](tests/test_degeneracy.py) | Forward-pass validity under extreme degeneracy (origin collapse, collinear, coplanar, underdetermined) |
 | [`tests/test_catastrophic_cancellation.py`](tests/test_catastrophic_cancellation.py) | Numerical stability at extreme coordinate magnitudes (1e-6 to 1e6) |
 | [`tests/test_error_handling.py`](tests/test_error_handling.py) | Correct exceptions for mismatched shapes, wrong dimensions, and invalid inputs |
