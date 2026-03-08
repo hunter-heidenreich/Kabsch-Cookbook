@@ -358,20 +358,15 @@ class TestDifferentiabilityTraps:
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @settings(
-        max_examples=30,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-        deadline=None,
-    )
-    @given(nearly_coplanar_nd())
     def test_gradients_stable_nearly_coplanar_hypothesis(
         self,
         adapter: FrameworkAdapter,
         wrt: str,
         algo: str,
-        P_np: np.ndarray,
     ) -> None:
         """Gradients remain finite for near-coplanar point clouds (Hypothesis)."""
+        # Skip before Hypothesis generates any examples -- condition is purely
+        # parametric (algo + precision), never data-dependent.
         if algo == "umeyama" and getattr(adapter, "precision", "float64") in (
             "float16",
             "bfloat16",
@@ -379,14 +374,24 @@ class TestDifferentiabilityTraps:
             pytest.skip(
                 "Umeyama variance division overflows float16 on near-coplanar inputs."
             )
-        # dim is drawn data -- use assume() to filter, not pytest.skip().
-        assume(adapter.supports_dim(P_np.shape[-1]))
-        Q_np = P_np.copy()
-        P = adapter.convert_in(P_np.astype(np.float64))
-        Q = adapter.convert_in(Q_np.astype(np.float64))
-        func = adapter.get_transform_func(algo)
-        grad = adapter.get_grad(P, Q, func, wrt=wrt)
-        assert np.all(np.isfinite(grad))
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(nearly_coplanar_nd())
+        def _inner(P_np: np.ndarray) -> None:
+            # dim is drawn data -- use assume() to filter, not pytest.skip().
+            assume(adapter.supports_dim(P_np.shape[-1]))
+            Q_np = P_np.copy()
+            P = adapter.convert_in(P_np.astype(np.float64))
+            Q = adapter.convert_in(Q_np.astype(np.float64))
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
 
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
