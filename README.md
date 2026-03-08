@@ -10,7 +10,7 @@ A collection of the Kabsch (SVD-based) and Horn (Quaternion-based) optimal struc
 
 ## Zero-Dependency Integration
 
-This cookbook is designed to be dropped directly into your codebase without adding external package bloat. 
+This cookbook is designed to be dropped directly into your codebase without adding external package bloat.
 
 Simply copy the specific framework folder you need from `src/kabsch_horn/<framework>/` directly into your project. Better yet, rip the code, remix it, or rewrite it for your specific use case. The project operates fully under the MIT license, so you are free to borrow, modify, and distribute exactly what you need without strings attached.
 
@@ -40,11 +40,11 @@ from kabsch_horn import pytorch as kh
 
 # 1. N-Dimensional SVD Kabsch
 # N-Dimensional points (e.g., representation matching in 64D)
-P_nd = torch.randn(10, 100, 64) 
+P_nd = torch.randn(10, 100, 64)
 Q_nd = torch.randn(10, 100, 64)
 
 # R: (Batch, 64, 64) | t: (Batch, 64) | rmsd: (Batch,)
-R, t, rmsd = kh.kabsch(P_nd, Q_nd) 
+R, t, rmsd = kh.kabsch(P_nd, Q_nd)
 
 # Umeyama Algorithm (with global scale)
 # R: (Batch, 64, 64) | t: (Batch, 64) | c: (Batch,) | rmsd: (Batch,)
@@ -52,8 +52,8 @@ R, t, c, rmsd = kh.kabsch_umeyama(P_nd, Q_nd)
 
 # 2. 3D Closed-Form Quaternion Horn
 # 3D points (e.g., standard molecular/physics alignment)
-P_3d = torch.randn(10, 100, 3) 
-Q_3d = torch.randn(10, 100, 3) 
+P_3d = torch.randn(10, 100, 3)
+Q_3d = torch.randn(10, 100, 3)
 
 # R: (Batch, 3, 3) | t: (Batch, 3) | rmsd: (Batch,)
 R, t, rmsd = kh.horn(P_3d, Q_3d)
@@ -71,10 +71,10 @@ loss.mean().backward() # Gradients remain stable
 
 The primary functions (`kabsch`, `kabsch_umeyama`, `horn`, and `horn_with_scale`) are supported across PyTorch, JAX, TensorFlow, MLX, and NumPy.
 
-* **PyTorch, JAX, TensorFlow, MLX:** 
+* **PyTorch, JAX, TensorFlow, MLX:**
   These autodiff frameworks use our custom `safe_svd` and `safe_eigh` operations. They return identical forward-pass results to the standard libraries while stabilizing differential calculations during the backward pass. They also provide single-call wrappers (`kh.kabsch_rmsd` and `kh.kabsch_umeyama_rmsd`) for gradient-safe evaluations of global coordinate loss.
-* **NumPy:** 
-  Focuses strictly on pure forward-pass evaluations. 
+* **NumPy:**
+  Focuses strictly on pure forward-pass evaluations.
 
 ## Extending the Cookbook
 
@@ -113,9 +113,9 @@ The test suite spans permutations across the supported frameworks. It tests agai
 * **Framework Targets**: Compares outputs across NumPy, PyTorch, JAX, TensorFlow, and MLX within hardware-dictated precision bounds.
 
 The suite verifies:
-1. **Forward Pass Equivalence**: Checks identity mapping, exact reconstruction against known transformations, N-dimensional batching evaluation (`[2, 3, N, D]`), and benchmarks standard implementations. 
+1. **Forward Pass Equivalence**: Checks identity mapping, exact reconstruction against known transformations, N-dimensional batching evaluation (`[2, 3, N, D]`), and benchmarks standard implementations.
 2. **Differentiability**: Validates that autodiff engines maintain numerical stability under mathematically critical states. This includes exactly identical input states, coplanar points, collinear data, perfect symmetrical primitives, mathematical reflections, and origin collapses.
-3. **Gradient Verification**: Compares numerical auto-differentiation against Finite Difference evaluations to validate descent directions.   
+3. **Gradient Verification**: Compares numerical auto-differentiation against Finite Difference evaluations to validate descent directions.
 4. **Catastrophic Cancellation**: Tests extreme magnitude shifts to verify float stability.
 5. **Degeneracy and Malformed Systems**: Verifies behavior under underdetermined layouts (points < dims) or mismatched arrays.
 
