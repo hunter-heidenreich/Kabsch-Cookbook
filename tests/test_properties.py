@@ -25,9 +25,9 @@ _NUMPY_SETTINGS = settings(
 
 
 class TestRotationInvariants:
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_nd())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_rotation_is_orthogonal_kabsch(
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
@@ -40,9 +40,9 @@ class TestRotationInvariants:
         R = adapter.convert_out(res[0])
         np.testing.assert_allclose(R @ R.T, np.eye(dim), atol=adapter.atol * 10)
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_3d())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_rotation_is_orthogonal_horn(
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
@@ -53,9 +53,9 @@ class TestRotationInvariants:
         R = adapter.convert_out(res[0])
         np.testing.assert_allclose(R @ R.T, np.eye(3), atol=adapter.atol * 10)
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_nd())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_rotation_det_is_positive_kabsch(
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
@@ -68,9 +68,9 @@ class TestRotationInvariants:
         R = adapter.convert_out(res[0])
         assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol * 10)
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_3d())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_rotation_det_is_positive_horn(
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
@@ -81,6 +81,7 @@ class TestRotationInvariants:
         R = adapter.convert_out(res[0])
         assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol * 10)
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(
         st.one_of(
@@ -90,7 +91,6 @@ class TestRotationInvariants:
             point_clouds_nd().map(lambda P: (P, "umeyama")),
         )
     )
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_rmsd_is_nonnegative(
         self, adapter: FrameworkAdapter, input_and_algo: tuple
     ) -> None:
@@ -107,9 +107,9 @@ class TestRotationInvariants:
         rmsd = float(adapter.convert_out(res[-1]))
         assert rmsd >= -adapter.atol * 10
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_nd())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_scale_is_positive_umeyama(
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
@@ -122,9 +122,9 @@ class TestRotationInvariants:
         c = float(adapter.convert_out(res[2]))
         assert c > -adapter.atol * 10
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_3d())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_scale_is_positive_horn_with_scale(
         self, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
@@ -208,9 +208,9 @@ class TestAlignmentOptimality:
 class TestKabschRecoveryND:
     """Verify that kabsch/umeyama recover a known rotation across all frameworks."""
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(aligned_pair_nd())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_kabsch_recovers_known_rotation_nd(
         self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
@@ -229,9 +229,9 @@ class TestKabschRecoveryND:
             float(adapter.convert_out(rmsd)), 0.0, atol=adapter.atol * 100
         )
 
+    @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(aligned_pair_nd())
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_kabsch_umeyama_recovers_known_rotation_nd(
         self, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
@@ -309,15 +309,15 @@ class TestAlignmentInvariants:
         np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-6)
 
     @_PAIR_SETTINGS
-    @given(_paired_clouds_nd)
-    def test_r_invariant_to_translation(self, PQ: tuple) -> None:
+    @given(_paired_clouds_nd, st.integers(0, 2**31 - 1))
+    def test_r_invariant_to_translation(self, PQ: tuple, seed: int) -> None:
         """Rotation R is unchanged when both P and Q are shifted by the same vector."""
         P_np, Q_np = PQ
         dim = P_np.shape[-1]
         H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
         sv_H = np.linalg.svd(H, compute_uv=False)
         assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
-        v = np.random.default_rng(55).standard_normal(dim)
+        v = np.random.default_rng(seed).standard_normal(dim)
         R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
         R2, _, _ = kabsch_np.kabsch(P_np + v, Q_np + v)
         np.testing.assert_allclose(R1, R2, atol=1e-6)

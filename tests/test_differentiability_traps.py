@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
-from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import HealthCheck, given, settings
 from strategies import extreme_scale_cloud, nearly_collinear_3d, nearly_coplanar_nd
 
 
@@ -278,15 +278,15 @@ class TestDifferentiabilityTraps:
         # With lower precision, floating point noise around zero can mask the descent.
         assert rmsd_new < rmsd_orig + adapter.eps
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(nearly_collinear_3d())
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_stable_nearly_collinear_hypothesis(
         self,
         adapter: FrameworkAdapter,
@@ -295,7 +295,6 @@ class TestDifferentiabilityTraps:
         P_np: np.ndarray,
     ) -> None:
         """Gradients remain finite for near-collinear point clouds (Hypothesis)."""
-        assume(adapter.supports_dim(3))
         Q_np = P_np.copy()
         P = adapter.convert_in(P_np.astype(np.float64))
         Q = adapter.convert_in(Q_np.astype(np.float64))
@@ -303,15 +302,15 @@ class TestDifferentiabilityTraps:
         grad = adapter.get_grad(P, Q, func, wrt=wrt)
         assert np.all(np.isfinite(grad))
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(nearly_coplanar_nd())
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_stable_nearly_coplanar_hypothesis(
         self,
         adapter: FrameworkAdapter,
@@ -320,7 +319,8 @@ class TestDifferentiabilityTraps:
         P_np: np.ndarray,
     ) -> None:
         """Gradients remain finite for near-coplanar point clouds (Hypothesis)."""
-        assume(adapter.supports_dim(P_np.shape[-1]))
+        if not adapter.supports_dim(P_np.shape[-1]):
+            return
         Q_np = P_np.copy()
         P = adapter.convert_in(P_np.astype(np.float64))
         Q = adapter.convert_in(Q_np.astype(np.float64))
@@ -328,15 +328,15 @@ class TestDifferentiabilityTraps:
         grad = adapter.get_grad(P, Q, func, wrt=wrt)
         assert np.all(np.isfinite(grad))
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(extreme_scale_cloud())
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_stable_extreme_scale_hypothesis(
         self,
         adapter: FrameworkAdapter,
@@ -348,7 +348,8 @@ class TestDifferentiabilityTraps:
         if getattr(adapter, "precision", "float64") not in ("float32", "float64"):
             pytest.skip("extreme scale unsafe for float16/bfloat16")
         P_np, Q_np = PQ
-        assume(adapter.supports_dim(P_np.shape[-1]))
+        if not adapter.supports_dim(P_np.shape[-1]):
+            return
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
@@ -506,15 +507,15 @@ class TestHornDifferentiabilityTraps:
 
         assert np.isfinite(grad).all()
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(nearly_collinear_3d())
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_stable_nearly_collinear_hypothesis(
         self,
         adapter: FrameworkAdapter,
@@ -530,15 +531,15 @@ class TestHornDifferentiabilityTraps:
         grad = adapter.get_grad(P, Q, func, wrt=wrt)
         assert np.all(np.isfinite(grad))
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(extreme_scale_cloud())
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_stable_extreme_scale_hypothesis(
         self,
         adapter: FrameworkAdapter,
@@ -554,9 +555,9 @@ class TestHornDifferentiabilityTraps:
         Q_np = Q_np[:, :3] if Q_np.shape[-1] > 3 else Q_np
         # Pad to 3D if needed
         if P_np.shape[-1] < 3:
-            pad = np.zeros((P_np.shape[0], 3 - P_np.shape[-1]))
-            P_np = np.concatenate([P_np, pad], axis=-1)
-            Q_np = np.concatenate([Q_np, pad], axis=-1)
+            n_pad = 3 - P_np.shape[-1]
+            P_np = np.concatenate([P_np, np.zeros((P_np.shape[0], n_pad))], axis=-1)
+            Q_np = np.concatenate([Q_np, np.zeros((Q_np.shape[0], n_pad))], axis=-1)
         P = adapter.convert_in(P_np.astype(np.float64))
         Q = adapter.convert_in(Q_np.astype(np.float64))
         func = adapter.get_transform_func(algo)

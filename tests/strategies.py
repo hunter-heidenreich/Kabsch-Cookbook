@@ -74,7 +74,7 @@ def nearly_collinear_3d(draw):
     n = draw(st.integers(5, 20))
     rng = np.random.default_rng(draw(st.integers(0, 2**31 - 1)))
     direction = rng.standard_normal(3)
-    direction /= np.linalg.norm(direction) + 1e-8
+    direction /= np.linalg.norm(direction)
     t_vals = rng.uniform(-10, 10, size=n)
     noise_scale = draw(st.floats(1e-4, 1e-2))
     noise = rng.standard_normal((n, 3)) * noise_scale
@@ -95,18 +95,6 @@ def nearly_coplanar_nd(draw, dim=None):
 
 
 @st.composite
-def near_duplicate_cloud(draw):
-    """Pair (P, Q) where most points nearly coincide (small displacement)."""
-    dim = draw(st.integers(2, 6))
-    n = draw(st.integers(dim + 2, dim * 4 + 4))
-    rng = np.random.default_rng(draw(st.integers(0, 2**31 - 1)))
-    P = rng.uniform(-10, 10, size=(n, dim))
-    noise_scale = draw(st.floats(1e-4, 1e-2))
-    Q = P + rng.standard_normal((n, dim)) * noise_scale
-    return P, Q
-
-
-@st.composite
 def extreme_scale_cloud(draw):
     """Pair (P, Q) with very large or very small coordinate magnitudes."""
     dim = draw(st.integers(2, 6))
@@ -118,15 +106,3 @@ def extreme_scale_cloud(draw):
     return P, Q
 
 
-@st.composite
-def batched_point_clouds(draw, batch_dims=None, dim=None):
-    """Batch of point clouds with arbitrary leading dims, shape [..., N, D]."""
-    if dim is None:
-        dim = draw(st.integers(2, 4))
-    if batch_dims is None:
-        n_batch = draw(st.integers(1, 2))
-        batch_dims = tuple(draw(st.integers(2, 4)) for _ in range(n_batch))
-    n = draw(st.integers(dim + 2, 12))
-    rng = np.random.default_rng(draw(st.integers(0, 2**31 - 1)))
-    shape = (*batch_dims, n, dim)
-    return rng.uniform(-10, 10, size=shape)

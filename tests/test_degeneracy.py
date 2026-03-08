@@ -104,10 +104,13 @@ class TestHornDegeneracyGeometric:
         Q_np = P_np.copy()
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        R, _t, _rmsd = adapter.horn(P, Q)
+        R, _t, rmsd = adapter.horn(P, Q)
         R_np = adapter.convert_out(R)
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
         assert np.linalg.det(R_np) > 0
+        assert float(adapter.convert_out(rmsd)) == pytest.approx(
+            0.0, abs=adapter.atol * 10
+        )
 
     def test_coplanar_inputs_return_valid_rotation(
         self,
@@ -119,7 +122,10 @@ class TestHornDegeneracyGeometric:
         Q_np = P_np.copy()
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        R, _t, _rmsd = adapter.horn(P, Q)
+        R, _t, rmsd = adapter.horn(P, Q)
         R_np = adapter.convert_out(R)
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
         assert np.linalg.det(R_np) > 0
+        assert float(adapter.convert_out(rmsd)) == pytest.approx(
+            0.0, abs=adapter.atol * 10
+        )

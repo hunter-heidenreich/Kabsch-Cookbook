@@ -160,15 +160,15 @@ class TestGradientVerification:
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(point_clouds_3d(), st.integers(0, 2**31 - 1))
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_match_finite_differences_hypothesis(
         self,
         adapter: FrameworkAdapter,
@@ -178,7 +178,6 @@ class TestGradientVerification:
         seed: int,
     ) -> None:
         """Compares analytic vs finite-difference gradients on Hypothesis inputs."""
-        assume(adapter.supports_dim(3))
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
         assume(sv[-1] > 1e-1)
         rng = np.random.default_rng(seed)
@@ -322,15 +321,15 @@ class TestHornGradientVerification:
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
 
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
     @settings(
         max_examples=30,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
     @given(point_clouds_3d(), st.integers(0, 2**31 - 1))
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_match_finite_differences_hypothesis(
         self,
         adapter: FrameworkAdapter,
