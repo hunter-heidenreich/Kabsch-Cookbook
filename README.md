@@ -1,6 +1,6 @@
 # Kabsch-Horn Alignment Cookbook
 
-A collection of the Kabsch (SVD-based) and Horn (Quaternion-based) optimal structural alignment algorithms. These are implemented natively across five Python math frameworks:
+A collection of the Kabsch (SVD-based) and Horn (Quaternion-based) optimal structural alignment algorithms, implemented natively across five Python math frameworks:
 
 * 🐍 **NumPy**
 * 🔥 **PyTorch**
@@ -8,37 +8,29 @@ A collection of the Kabsch (SVD-based) and Horn (Quaternion-based) optimal struc
 * 🧱 **TensorFlow**
 * 🍎 **MLX**
 
-## Zero-Dependency Integration
+## Getting Started
 
-This cookbook is designed to be dropped directly into your codebase without adding external package bloat.
+Copy the framework folder you need from `src/kabsch_horn/<framework>/` directly into your project. The code has no runtime dependencies beyond the framework itself, so nothing new gets added to your environment.
 
-Simply copy the specific framework folder you need from `src/kabsch_horn/<framework>/` directly into your project. Better yet, rip the code, remix it, or rewrite it for your specific use case. The project operates fully under the MIT license, so you are free to borrow, modify, and distribute exactly what you need without strings attached.
+```
+src/kabsch_horn/
+├── numpy/
+├── pytorch/
+├── jax/
+├── tensorflow/
+└── mlx/
+```
 
-## Two Paths to Alignment
-
-This cookbook provides two methodologies for calculating optimal rotation matrices.
-
-### Kabsch Algorithm (N-Dimensional SVD)
-Traditionally used for 3D coordinates, this SVD implementation supports N-dimensional latent space alignments. It scales to higher dimensions for tasks like mapping internal representations.
-
-### Horn's Method (3D Quaternions)
-Horn's method applies strictly to 3D space. It uses a closed-form quaternion eigendecomposition to calculate alignment. It avoids the reflection trap often encountered in SVD approaches. This makes it a reliable choice for 3D point cloud tasks, such as molecular conformers or rigid-body physics.
-
-## Stabilizing Gradients
-
-Point cloud alignments evaluated during neural network training often encounter mathematically degenerate states. For example, point clouds with perfect symmetry produce identical eigenvalues or singular values. Standard library gradients derived from the backward pass divide by these numerical differences, resulting in zero-division and `NaN` weights.
-
-This cookbook addresses this issue directly. The autograd wrappers provided for PyTorch, JAX, TensorFlow, and MLX override their standard SVD and Eigh computational graphs. The implementation dynamically masks identical roots during backpropagation and injects epsilon factors.
-
-Gradient stability is not just claimed -- it is tested. Hypothesis property tests verify that gradients remain finite across coplanar, collinear, reflected, and collapsed inputs. A dedicated descent-direction test verifies that SafeSVD's masked gradients at near-degenerate inputs still reduce RMSD when used in a gradient step, rather than merely being finite. See [`tests/test_differentiability_traps.py`](tests/test_differentiability_traps.py) and [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py).
+Each folder contains two files: `kabsch_svd_nd.py` for SVD-based alignment and `horn_quat_3d.py` for quaternion-based alignment. Copy one file, both, or the whole folder -- the MIT license lets you borrow, modify, and redistribute freely.
 
 ## Usage
 
-Each framework exports a consistent signature and routes to the chosen backend. Batch processing (`[Batch, Points, D]`) is supported for all functions.
+Each framework exports a consistent API. Batch processing (`[Batch, Points, D]`) is supported for all functions.
 
 ```python
-import torch # Or mx, jax, tf, np
+import torch
 from kabsch_horn import pytorch as kh
+# Replace `pytorch` with `jax`, `tensorflow`, `mlx`, or `numpy` as needed.
 
 # 1. N-Dimensional SVD Kabsch
 # N-Dimensional points (e.g., representation matching in 64D)
@@ -48,7 +40,7 @@ Q_nd = torch.randn(10, 100, 64)
 # R: (Batch, 64, 64) | t: (Batch, 64) | rmsd: (Batch,)
 R, t, rmsd = kh.kabsch(P_nd, Q_nd)
 
-# Umeyama Algorithm (with global scale)
+# Umeyama variant (with global scale)
 # R: (Batch, 64, 64) | t: (Batch, 64) | c: (Batch,) | rmsd: (Batch,)
 R, t, c, rmsd = kh.kabsch_umeyama(P_nd, Q_nd)
 
@@ -60,23 +52,44 @@ Q_3d = torch.randn(10, 100, 3)
 # R: (Batch, 3, 3) | t: (Batch, 3) | rmsd: (Batch,)
 R, t, rmsd = kh.horn(P_3d, Q_3d)
 
-# Umeyama Algorithm for Horn
+# Horn with scale
 # R: (Batch, 3, 3) | t: (Batch, 3) | c: (Batch,) | rmsd: (Batch,)
 R, t, c, rmsd = kh.horn_with_scale(P_3d, Q_3d)
 
-# Fast utility for evaluating RMSD loss (defaults to SVD Kabsch)
+# Single-call RMSD loss (autodiff frameworks only; gradients remain stable)
 loss = kh.kabsch_rmsd(P_nd, Q_nd)
-loss.mean().backward() # Gradients remain stable
+loss.mean().backward()
 ```
 
 ## Framework Support
 
-The primary functions (`kabsch`, `kabsch_umeyama`, `horn`, and `horn_with_scale`) are supported across PyTorch, JAX, TensorFlow, MLX, and NumPy.
+| Function | NumPy | PyTorch | JAX | TensorFlow | MLX |
+|----------|:-----:|:-------:|:---:|:----------:|:---:|
+| `kabsch` | ✓ | ✓ | ✓ | ✓ | ✓ (3D only) |
+| `kabsch_umeyama` | ✓ | ✓ | ✓ | ✓ | ✓ (3D only) |
+| `horn` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `horn_with_scale` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `kabsch_rmsd` | -- | ✓ | ✓ | ✓ | ✓ |
+| `kabsch_umeyama_rmsd` | -- | ✓ | ✓ | ✓ | ✓ |
+| Gradient-safe backward | -- | ✓ | ✓ | ✓ | ✓ |
 
-* **PyTorch, JAX, TensorFlow, MLX:**
-  These autodiff frameworks use our custom `safe_svd` and `safe_eigh` operations. They return identical forward-pass results to the standard libraries while stabilizing differential calculations during the backward pass. They also provide single-call wrappers (`kh.kabsch_rmsd` and `kh.kabsch_umeyama_rmsd`) for gradient-safe evaluations of global coordinate loss.
-* **NumPy:**
-  Focuses strictly on pure forward-pass evaluations.
+NumPy provides forward-pass evaluation only. MLX uses a hardcoded 3x3 determinant correction and raises `ValueError` for non-3D inputs.
+
+## Two Paths to Alignment
+
+### Kabsch Algorithm (N-Dimensional SVD)
+Traditionally used for 3D coordinates, this SVD implementation supports N-dimensional alignments. It scales to higher dimensions for tasks like mapping internal representations between models.
+
+### Horn's Method (3D Quaternions)
+Horn's method applies strictly to 3D space. It uses a closed-form quaternion eigendecomposition to compute alignment and avoids the reflection trap often encountered in SVD approaches. This makes it a reliable choice for 3D point cloud tasks, such as molecular conformers or rigid-body physics.
+
+## Stabilizing Gradients
+
+Point cloud alignments evaluated during neural network training often encounter mathematically degenerate states. For example, point clouds with perfect symmetry produce identical eigenvalues or singular values. Standard library gradients derived from the backward pass divide by these numerical differences, resulting in zero-division and `NaN` weights.
+
+This cookbook addresses this directly. The autograd wrappers for PyTorch, JAX, TensorFlow, and MLX override their standard SVD and Eigh computational graphs, dynamically masking identical roots during backpropagation with epsilon factors.
+
+Gradient stability is not just claimed -- it is tested. Hypothesis property tests verify that gradients remain finite across coplanar, collinear, reflected, and collapsed inputs. A dedicated descent-direction test verifies that SafeSVD's masked gradients at near-degenerate inputs still reduce RMSD when used in a gradient step, rather than merely being finite. See [`tests/test_differentiability_traps.py`](tests/test_differentiability_traps.py) and [`tests/test_gradient_verification.py`](tests/test_gradient_verification.py).
 
 ## Verified Properties
 
@@ -189,6 +202,7 @@ The test suite is organized around mathematical claims rather than code coverage
 | [`tests/test_degeneracy.py`](tests/test_degeneracy.py) | Forward-pass validity under extreme degeneracy (origin collapse, collinear, coplanar, underdetermined) |
 | [`tests/test_catastrophic_cancellation.py`](tests/test_catastrophic_cancellation.py) | Numerical stability at extreme coordinate magnitudes (1e-6 to 1e6) |
 | [`tests/test_error_handling.py`](tests/test_error_handling.py) | Correct exceptions for mismatched shapes, wrong dimensions, and invalid inputs |
+| [`tests/test_rmsd_wrappers.py`](tests/test_rmsd_wrappers.py) | `kabsch_rmsd` and `kabsch_umeyama_rmsd` match full-call RMSD output; N=1 single-point edge cases |
 
 The suite runs across 4 frameworks x 4 precisions (float16, bfloat16, float32, float64), with MLX restricted to 3D. Hypothesis property tests use configurable example counts; CI runs the defaults.
 
