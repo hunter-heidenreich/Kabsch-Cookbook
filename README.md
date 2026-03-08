@@ -88,10 +88,10 @@ These hold for all frameworks, all precisions, and all valid input shapes.
 
 | Property | Algorithms | Test |
 |----------|-----------|------|
-| R is orthogonal: R @ R.T = I | kabsch, horn | [`test_rotation_is_orthogonal_*`](tests/test_properties.py) |
-| R is proper: det(R) = +1 (no reflections) | kabsch, horn | [`test_rotation_det_is_positive_*`](tests/test_properties.py) |
-| RMSD >= 0 | all | [`test_rmsd_is_nonnegative`](tests/test_properties.py) |
-| Scale c > 0 | kabsch_umeyama, horn_with_scale | [`test_scale_is_positive_*`](tests/test_properties.py) |
+| $R R^\top = I$ (orthogonal) | kabsch, horn | [`test_rotation_is_orthogonal_*`](tests/test_properties.py) |
+| $\det(R) = +1$ (proper rotation, no reflections) | kabsch, horn | [`test_rotation_det_is_positive_*`](tests/test_properties.py) |
+| $\text{RMSD} \geq 0$ | all | [`test_rmsd_is_nonnegative`](tests/test_properties.py) |
+| $c > 0$ (scale factor) | kabsch_umeyama, horn_with_scale | [`test_scale_is_positive_*`](tests/test_properties.py) |
 
 ### Correctness invariants
 
@@ -99,48 +99,48 @@ These are verified with NumPy over Hypothesis-drawn inputs.
 
 | Property | Test |
 |----------|------|
-| RMSD = ‖P @ R.T + t − Q‖_F / √N | [`test_rmsd_equals_transform_residual`](tests/test_properties.py) |
-| Returned R is globally optimal: no perturbation lowers RMSD | [`test_no_rotation_achieves_lower_rmsd`](tests/test_properties.py) |
-| RMSD(P→Q) = RMSD(Q→P) | [`test_kabsch_rmsd_is_symmetric`](tests/test_properties.py) |
-| RMSD invariant to applying the same rigid transform to both inputs | [`test_rmsd_invariant_to_rigid_transform`](tests/test_properties.py) |
-| R invariant to translating both inputs by the same vector | [`test_r_invariant_to_translation`](tests/test_properties.py) |
-| R invariant to scaling both inputs by the same scalar | [`test_r_invariant_to_uniform_scale`](tests/test_properties.py) |
-| When true scale is 1, Umeyama returns c = 1 and matches Kabsch R, t | [`test_umeyama_equals_kabsch_when_no_scale_change`](tests/test_properties.py) |
-| When Q = c * (P @ R_true.T) + t, Umeyama recovers c exactly | [`test_umeyama_recovers_exact_scale`](tests/test_properties.py) |
+| $\text{RMSD} = \lVert P R^\top + t - Q \rVert_F / \sqrt{N}$ | [`test_rmsd_equals_transform_residual`](tests/test_properties.py) |
+| $R$ is globally optimal: no rotation perturbation lowers RMSD | [`test_no_rotation_achieves_lower_rmsd`](tests/test_properties.py) |
+| $\text{RMSD}(P, Q) = \text{RMSD}(Q, P)$ | [`test_kabsch_rmsd_is_symmetric`](tests/test_properties.py) |
+| $\text{RMSD}(SP + u,\, SQ + u) = \text{RMSD}(P, Q)$ for any rigid transform $(S, u)$ | [`test_rmsd_invariant_to_rigid_transform`](tests/test_properties.py) |
+| $R(P + v,\, Q + v) = R(P, Q)$ for any translation $v$ | [`test_r_invariant_to_translation`](tests/test_properties.py) |
+| $R(cP,\, cQ) = R(P, Q)$ for any scalar $c > 0$ | [`test_r_invariant_to_uniform_scale`](tests/test_properties.py) |
+| When $Q = P R_\text{true}^\top + t$, Umeyama returns $c = 1$ and matches Kabsch $R$, $t$ | [`test_umeyama_equals_kabsch_when_no_scale_change`](tests/test_properties.py) |
+| When $Q = c_\text{true}(P R_\text{true}^\top) + t$, Umeyama recovers $c_\text{true}$ exactly | [`test_umeyama_recovers_exact_scale`](tests/test_properties.py) |
 
 ### Cross-algorithm consistency
 
-When the cross-covariance H is well-conditioned (smallest singular value > 1e-3), the SVD and quaternion code paths agree exactly.
+When the cross-covariance $H = (P - \bar{P})^\top (Q - \bar{Q})$ is well-conditioned ($\sigma_{\min}(H) > 10^{-3}$), the SVD and quaternion code paths agree exactly.
 
 | Property | Test |
 |----------|------|
-| `kabsch` and `horn` return identical R, t, rmsd in 3D | [`test_kabsch_and_horn_agree_on_rotation_3d`](tests/test_properties.py) |
+| `kabsch` and `horn` return identical $R$, $t$, $\text{RMSD}$ in 3D | [`test_kabsch_and_horn_agree_on_rotation_3d`](tests/test_properties.py) |
 | `kabsch_umeyama` and `horn_with_scale` agree in 3D | [`test_umeyama_and_horn_with_scale_agree_3d`](tests/test_properties.py) |
 
 ### Gradient stability
 
-SafeSVD and SafeEigh override the standard backward pass to mask near-zero singular value and eigenvalue differences with eps=1e-12. The table below lists the degenerate cases explicitly tested.
+SafeSVD and SafeEigh override the standard backward pass to mask near-zero singular value and eigenvalue differences with `eps=1e-12`. The table below lists the degenerate cases explicitly tested.
 
 | Degenerate input | Guarantee | Test |
 |-----------------|-----------|------|
-| P = Q (identical) | Finite gradient | [`test_gradients_are_stable_when_points_are_identical`](tests/test_differentiability_traps.py) |
+| $P = Q$ (identical) | Finite gradient | [`test_gradients_are_stable_when_points_are_identical`](tests/test_differentiability_traps.py) |
 | Coplanar points | Finite gradient | [`test_gradients_are_stable_when_points_are_coplanar`](tests/test_differentiability_traps.py) |
 | Collinear points | Finite gradient + descent direction | [`test_gradients_are_stable_when_points_are_collinear`](tests/test_differentiability_traps.py) |
-| Near-collinear, P = Q (Hypothesis) | Finite gradient | [`test_gradients_stable_nearly_collinear_hypothesis`](tests/test_differentiability_traps.py) |
-| Near-collinear, P ≠ Q (Hypothesis) | Finite gradient | [`test_gradients_stable_nearly_collinear_different_clouds`](tests/test_differentiability_traps.py) |
-| Near-coplanar (Hypothesis, dim >= 3) | Finite gradient | [`test_gradients_stable_nearly_coplanar_hypothesis`](tests/test_differentiability_traps.py) |
-| Reflection (improper R would be needed) | Finite gradient + det(R) = +1 | [`test_gradients_are_stable_when_points_are_reflected`](tests/test_differentiability_traps.py) |
-| Underdetermined (N < D) | Finite gradient | [`test_gradients_are_stable_when_system_is_underdetermined`](tests/test_differentiability_traps.py) |
+| Near-collinear, $P = Q$ (Hypothesis) | Finite gradient | [`test_gradients_stable_nearly_collinear_hypothesis`](tests/test_differentiability_traps.py) |
+| Near-collinear, $P \neq Q$ (Hypothesis) | Finite gradient | [`test_gradients_stable_nearly_collinear_different_clouds`](tests/test_differentiability_traps.py) |
+| Near-coplanar (Hypothesis, $d \geq 3$) | Finite gradient | [`test_gradients_stable_nearly_coplanar_hypothesis`](tests/test_differentiability_traps.py) |
+| Reflection (improper $R$ would be needed) | Finite gradient + $\det(R) = +1$ | [`test_gradients_are_stable_when_points_are_reflected`](tests/test_differentiability_traps.py) |
+| Underdetermined ($N < d$) | Finite gradient | [`test_gradients_are_stable_when_system_is_underdetermined`](tests/test_differentiability_traps.py) |
 | Collapse to origin | Finite gradient | [`test_gradients_are_stable_when_points_collapse_to_origin`](tests/test_differentiability_traps.py) |
-| Near-collinear or coplanar (Hypothesis, descent) | rmsd(P − α·grad, Q) ≤ rmsd(P, Q) + 0.1 | [`test_safe_svd_gradient_reduces_rmsd_at_hypothesis_near_degenerate`](tests/test_gradient_verification.py) |
+| Near-collinear or coplanar (Hypothesis, descent) | $\text{RMSD}(P - \alpha \nabla, Q) \leq \text{RMSD}(P, Q) + 0.1$ | [`test_safe_svd_gradient_reduces_rmsd_at_hypothesis_near_degenerate`](tests/test_gradient_verification.py) |
 
-"Descent direction" means one gradient step with step size α=0.01 does not increase RMSD by more than 0.1. The loose tolerance is intentional -- the guarantee is non-increase, not numerical precision. Gradient accuracy against finite differences is verified for float64 in [`test_gradients_match_finite_differences_hypothesis`](tests/test_gradient_verification.py).
+"Descent direction" means one gradient step with $\alpha = 0.01$ does not increase RMSD by more than 0.1. The loose tolerance is intentional -- the guarantee is non-increase, not numerical precision. Gradient accuracy against finite differences is verified for float64 in [`test_gradients_match_finite_differences_hypothesis`](tests/test_gradient_verification.py).
 
 ### Known algorithm boundaries
 
 Some inputs are fundamentally degenerate. The library does not raise errors in these cases, but users should understand the implications.
 
-**Near-collinear clouds -- rotation is ambiguous.** When the cross-covariance matrix H = (P - mean(P)).T @ (Q - mean(Q)) has a near-zero smallest singular value, multiple rotations achieve the same RMSD. SafeSVD returns a valid rotation (det = +1) with a finite gradient, but the direction is arbitrary. Gradient-based optimizers may behave unpredictably in this regime. See [`test_rotation_is_not_unique_when_cross_covariance_is_degenerate`](tests/test_properties.py).
+**Near-collinear clouds -- rotation is ambiguous.** When $H = (P - \bar{P})^\top (Q - \bar{Q})$ has a near-zero smallest singular value, multiple rotations achieve the same RMSD. SafeSVD returns a valid rotation ($\det(R) = +1$) with a finite gradient, but the direction is arbitrary. Gradient-based optimizers may behave unpredictably in this regime. See [`test_rotation_is_not_unique_when_cross_covariance_is_degenerate`](tests/test_properties.py).
 
 **MLX: 3D inputs only.** MLX uses a hardcoded 3x3 determinant correction and raises `ValueError` for `dim != 3`.
 
