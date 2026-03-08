@@ -178,6 +178,10 @@ class TestGradientVerification:
         seed: int,
     ) -> None:
         """Compares analytic vs finite-difference gradients on Hypothesis inputs."""
+        if adapter.precision in ("float16", "bfloat16"):
+            pytest.skip(
+                "FD gradient check is vacuous for float16/bfloat16 (atol*50=5.0)"
+            )
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
         assume(sv[-1] > 1e-1)
         rng = np.random.default_rng(seed)
@@ -341,6 +345,10 @@ class TestHornGradientVerification:
         seed: int,
     ) -> None:
         """Compares Horn analytic vs finite-difference gradients (Hypothesis-varied)."""
+        if adapter.precision in ("float16", "bfloat16"):
+            pytest.skip(
+                "FD gradient check is vacuous for float16/bfloat16 (atol*50=5.0)"
+            )
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
         assume(sv[-1] > 1e-1)
         rng = np.random.default_rng(seed)

@@ -98,8 +98,6 @@ class TestRotationInvariants:
         P_np, algo = input_and_algo
         dim = P_np.shape[-1]
         assume(adapter.supports_dim(dim))
-        if algo in ("horn", "horn_with_scale") and dim != 3:
-            return
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
