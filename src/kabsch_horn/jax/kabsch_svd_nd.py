@@ -99,6 +99,13 @@ def kabsch(
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], and RMSD [...].
         float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+
+    Note:
+        R is only stable under global translation when the cross-covariance matrix
+        H = P_c.T @ Q_c is well-conditioned. When the smallest singular value of H
+        is near zero, U and V from the SVD are not unique, and a small perturbation
+        can select a different rotation. Check the singular values of H if rotation
+        stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
@@ -184,6 +191,13 @@ def kabsch_umeyama(
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D],
         scale [...], RMSD [...].
         float16/bfloat16 inputs are upcast to float32 and downcast on output.
+
+    Note:
+        R is only stable under global translation and uniform scaling when the
+        cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
+        smallest singular value of H is near zero, U and V from the SVD are not
+        unique, and a small perturbation can select a different rotation. Check
+        the singular values of H if rotation stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
