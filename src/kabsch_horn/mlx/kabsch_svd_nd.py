@@ -83,6 +83,13 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
     Raises:
         ValueError: If inputs are not 3-dimensional (D != 3).
+
+    Note:
+        R is only stable under global translation when the cross-covariance matrix
+        H = P_c.T @ Q_c is well-conditioned. When the smallest singular value of H
+        is near zero, U and V from the SVD are not unique, and a small perturbation
+        can select a different rotation. Check the singular values of H if rotation
+        stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
@@ -188,6 +195,13 @@ def kabsch_umeyama(
 
     Raises:
         ValueError: If inputs are not 3-dimensional (D != 3).
+
+    Note:
+        R is only stable under global translation and uniform scaling when the
+        cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
+        smallest singular value of H is near zero, U and V from the SVD are not
+        unique, and a small perturbation can select a different rotation. Check
+        the singular values of H if rotation stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
