@@ -395,6 +395,13 @@ try:
 
         def _set_device(self) -> None:
             if self.precision == "float64":
+                import warnings
+
+                warnings.warn(
+                    "MLX does not support float64 on GPU; falling back to CPU.",
+                    UserWarning,
+                    stacklevel=2,
+                )
                 mx.set_default_device(mx.cpu)
             else:
                 mx.set_default_device(mx.gpu)
