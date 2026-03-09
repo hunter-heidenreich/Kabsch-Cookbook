@@ -125,7 +125,7 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
     rmsd = tf.sqrt(
         tf.maximum(
-            tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f, 1e-12
+            tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f, 0.0
         )
     )
 
@@ -236,7 +236,7 @@ def horn_with_scale(
     ) + tf.expand_dims(t, -2)
     diff = aligned_P - Q
     rmsd = tf.sqrt(
-        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f, 1e-12)
+        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f, 0.0)
     )
 
     if is_single:

@@ -144,7 +144,7 @@ def horn(
     # RMSD
     aligned = torch.matmul(p, R.transpose(1, 2))
     rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts, min=1e-12)
+        torch.clamp(torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts, min=0.0)
     )
 
     if is_single:
@@ -266,7 +266,7 @@ def horn_with_scale(
     ) + t.unsqueeze(1)
     diff = aligned_P - Q
     rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(diff), dim=(1, 2)) / N_pts, min=1e-12)
+        torch.clamp(torch.sum(torch.square(diff), dim=(1, 2)) / N_pts, min=0.0)
     )
 
     if is_single:
