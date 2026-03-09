@@ -37,7 +37,6 @@ def call_safe_eigh(A):
 
 
 def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
-    # Assume 3D
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
 
@@ -45,6 +44,8 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -147,6 +148,8 @@ def horn_with_scale(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
