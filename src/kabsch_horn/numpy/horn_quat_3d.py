@@ -61,6 +61,19 @@ def _quat_to_rotation(q_opt: np.ndarray) -> np.ndarray:
 
 
 def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Computes optimal rotation and translation to align P to Q using Horn's
+    quaternion method.
+
+    Strictly 3D only. Forward-pass only (NumPy has no autograd).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+    """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
@@ -123,6 +136,20 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
 def horn_with_scale(
     P: np.ndarray, Q: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Computes optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    Strictly 3D only. Forward-pass only (NumPy has no autograd).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+    """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
