@@ -628,6 +628,8 @@ class TestHornDifferentiabilityTraps:
         Q = P), this test draws P and Q independently so the cross-covariance H
         is rank-1 but non-zero -- the realistic hard case SafeEigh is designed for.
         """
+        # P != Q makes H non-zero, amplifying eigh gradients enough to overflow
+        # float16 even for base horn (unlike the P=Q sibling which is near-zero).
         if getattr(adapter, "precision", "float64") in ("float16", "bfloat16"):
             pytest.skip(
                 "Near-collinear independent clouds produce large eigh gradients "
@@ -641,6 +643,7 @@ class TestHornDifferentiabilityTraps:
         )
         @given(nearly_collinear_3d(), nearly_collinear_3d())
         def _inner(P_np: np.ndarray, Q_np: np.ndarray) -> None:
+            # Truncate to the shorter cloud so P and Q have the same number of points.
             n = min(P_np.shape[0], Q_np.shape[0])
             P_np_t = P_np[:n]
             Q_np_t = Q_np[:n]
