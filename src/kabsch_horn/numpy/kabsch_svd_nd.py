@@ -23,6 +23,8 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     # Auto-batch single elements
     is_single = P.ndim == 2
@@ -116,6 +118,8 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     is_single = P.ndim == 2
     if is_single:

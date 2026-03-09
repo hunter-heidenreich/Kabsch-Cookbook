@@ -101,6 +101,8 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
             "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
     _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
@@ -213,6 +215,8 @@ def kabsch_umeyama(
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
             "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
     _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
