@@ -1,16 +1,6 @@
-import warnings
-
 import mlx.core as mx
 
-
-def _warn_if_float64(arr: mx.array) -> None:
-    if arr.dtype == mx.float64:
-        warnings.warn(
-            "MLX does not support float64 on GPU; falling back to CPU.",
-            UserWarning,
-            stacklevel=3,
-        )
-        mx.set_default_device(mx.cpu)
+from ._utils import _warn_if_float64
 
 
 @mx.custom_function
@@ -70,7 +60,7 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     """
     P = mx.array(P)
     Q = mx.array(Q)
-    _warn_if_float64(P)
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -174,7 +164,7 @@ def horn_with_scale(
     """
     P = mx.array(P)
     Q = mx.array(Q)
-    _warn_if_float64(P)
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)

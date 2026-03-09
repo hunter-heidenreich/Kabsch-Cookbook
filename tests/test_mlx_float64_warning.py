@@ -54,6 +54,19 @@ _NO_WARN_FNS = (
     else []
 )
 
+_MIXED_WARN_FNS = (
+    [
+        pytest.param(kabsch_mlx.kabsch, id="kabsch"),
+        pytest.param(kabsch_mlx.kabsch_umeyama, id="kabsch_umeyama"),
+        pytest.param(kabsch_mlx.kabsch_rmsd, id="kabsch_rmsd"),
+        pytest.param(kabsch_mlx.kabsch_umeyama_rmsd, id="kabsch_umeyama_rmsd"),
+        pytest.param(kabsch_mlx.horn, id="horn"),
+        pytest.param(kabsch_mlx.horn_with_scale, id="horn_with_scale"),
+    ]
+    if _MLX_AVAILABLE
+    else []
+)
+
 
 @pytest.mark.parametrize("fn", _WARN_FNS)
 def test_float64_emits_user_warning(fn, P, Q):
@@ -70,6 +83,15 @@ def test_float32_no_warning(fn):
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         fn(P32, Q32)
+
+
+@pytest.mark.parametrize("fn", _MIXED_WARN_FNS)
+def test_float32_p_float64_q_emits_warning(fn):
+    """float32 P + float64 Q must emit a UserWarning (previously missed Q check)."""
+    P32 = mx.array(_P_NP.astype(np.float32))  # type: ignore[name-defined]
+    Q64 = mx.array(_Q_NP, dtype=mx.float64)  # type: ignore[name-defined]
+    with pytest.warns(UserWarning, match="float64"):
+        fn(P32, Q64)
 
 
 def test_mlx_adapter_float64_emits_warning():
