@@ -47,6 +47,8 @@ _NO_WARN_FNS = (
     [
         pytest.param(kabsch_mlx.kabsch, id="kabsch"),
         pytest.param(kabsch_mlx.kabsch_umeyama, id="kabsch_umeyama"),
+        pytest.param(kabsch_mlx.kabsch_rmsd, id="kabsch_rmsd"),
+        pytest.param(kabsch_mlx.kabsch_umeyama_rmsd, id="kabsch_umeyama_rmsd"),
         pytest.param(kabsch_mlx.horn, id="horn"),
         pytest.param(kabsch_mlx.horn_with_scale, id="horn_with_scale"),
     ]
@@ -80,6 +82,7 @@ def test_float32_no_warning(fn):
     """float32 MLX inputs must not emit a float64 warning."""
     P32 = mx.array(_P_NP.astype(np.float32))  # type: ignore[name-defined]
     Q32 = mx.array(_Q_NP.astype(np.float32))  # type: ignore[name-defined]
+
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         fn(P32, Q32)
@@ -90,20 +93,16 @@ def test_float32_p_float64_q_emits_warning(fn):
     """float32 P + float64 Q must emit a UserWarning (previously missed Q check)."""
     P32 = mx.array(_P_NP.astype(np.float32))  # type: ignore[name-defined]
     Q64 = mx.array(_Q_NP, dtype=mx.float64)  # type: ignore[name-defined]
+
     with pytest.warns(UserWarning, match="float64"):
         fn(P32, Q64)
 
 
 def test_mlx_adapter_float64_emits_warning():
-    """MLXAdapter._set_device warns on float64."""
+    """Library warning fires when a float64 call is made through MLXAdapter."""
     adapter = MLXAdapter("float64")  # type: ignore[name-defined]
+    P = adapter.convert_in(_P_NP)
+    Q = adapter.convert_in(_Q_NP)
+
     with pytest.warns(UserWarning, match="float64"):
-        adapter._set_device()
-
-
-def test_mlx_adapter_float32_no_warning():
-    """MLXAdapter._set_device does not warn on float32."""
-    adapter = MLXAdapter("float32")  # type: ignore[name-defined]
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", UserWarning)
-        adapter._set_device()
+        adapter.kabsch(P, Q)
