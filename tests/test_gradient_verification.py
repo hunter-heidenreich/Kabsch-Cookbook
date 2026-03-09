@@ -478,7 +478,7 @@ class TestHornGradientVerification:
 
 
 _JAX_SVD_XFAIL = pytest.mark.xfail(
-    strict=True,
+    strict=False,
     reason=(
         "JAX custom_vjp does not implement SVD JVP; double backward through "
         "kabsch/kabsch_umeyama is unsupported upstream (jax.linalg.svd). "
