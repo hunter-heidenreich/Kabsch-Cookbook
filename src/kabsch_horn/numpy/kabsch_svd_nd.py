@@ -38,26 +38,24 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     Q = np.reshape(Q, (-1, N, D))
 
     # Compute centroids
-    centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1x3
-    centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1x3
+    centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
+    centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1xD
 
     # Center the points
-    p = P - centroid_P  # BxNx3
-    q = Q - centroid_Q  # BxNx3
+    p = P - centroid_P  # BxNxD
+    q = Q - centroid_Q  # BxNxD
 
     # Compute the covariance matrix
-    H = np.matmul(p.transpose(0, 2, 1), q)  # Bx3x3
+    H = np.matmul(p.transpose(0, 2, 1), q)  # BxDxD
 
     # SVD
-    U, _, Vt = np.linalg.svd(H)  # Bx3x3
+    U, _, Vt = np.linalg.svd(H)  # BxDxD
 
     # Validate right-handed coordinate system
     d = np.linalg.det(np.matmul(Vt.transpose(0, 2, 1), U.transpose(0, 2, 1)))
 
-    # Correction array
-    d_sign = np.sign(d)
-    # If d is exactly 0, sign is 0, but we want 1 for non-reflection
-    d_sign[d_sign == 0] = 1.0
+    # Correction array; treat d==0 as positive (non-reflection)
+    d_sign = np.where(d == 0, 1.0, np.sign(d))
 
     # Optimal rotation
     R = np.matmul(
@@ -75,7 +73,13 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
     # RMSD
     aligned_P = np.matmul(P, R.transpose(0, 2, 1)) + t[:, np.newaxis, :]
-    rmsd = np.sqrt(np.sum(np.square(aligned_P - Q), axis=(1, 2)) / P.shape[1])
+    rmsd = np.sqrt(
+        np.clip(
+            np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N,
+            a_min=0.0,
+            a_max=None,
+        )
+    )
 
     if is_single:
         return R[0], t[0], rmsd[0]
@@ -146,9 +150,8 @@ def kabsch_umeyama(
     V = Vt.transpose(0, 2, 1)
     d = np.linalg.det(np.matmul(V, U.transpose(0, 2, 1)))
 
-    # Correction array
-    d_sign = np.sign(d)
-    d_sign[d_sign == 0] = 1.0
+    # Correction array; treat d==0 as positive (non-reflection)
+    d_sign = np.where(d == 0, 1.0, np.sign(d))
 
     # S factor
     S_corr = np.stack([np.ones_like(d_sign)] * (D - 1) + [d_sign], axis=-1)  # BxD
@@ -169,7 +172,13 @@ def kabsch_umeyama(
         c[:, np.newaxis, np.newaxis] * np.matmul(P, R.transpose(0, 2, 1))
         + t[:, np.newaxis, :]
     )
-    rmsd = np.sqrt(np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N)
+    rmsd = np.sqrt(
+        np.clip(
+            np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N,
+            a_min=0.0,
+            a_max=None,
+        )
+    )
 
     if is_single:
         return R[0], t[0], c[0], rmsd[0]
