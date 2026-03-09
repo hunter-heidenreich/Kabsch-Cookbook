@@ -1,5 +1,7 @@
 import mlx.core as mx
 
+from ._utils import _warn_if_float64
+
 
 @mx.custom_function
 def safe_svd(A: mx.array) -> tuple[mx.array, mx.array, mx.array]:
@@ -92,6 +94,7 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
             "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
         )
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -196,6 +199,7 @@ def kabsch_umeyama(
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
             "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
         )
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)

@@ -1,5 +1,7 @@
 import mlx.core as mx
 
+from ._utils import _warn_if_float64
+
 
 @mx.custom_function
 def safe_eigh_fwd(A: mx.array) -> tuple[mx.array, mx.array]:
@@ -58,6 +60,7 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     """
     P = mx.array(P)
     Q = mx.array(Q)
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -161,6 +164,7 @@ def horn_with_scale(
     """
     P = mx.array(P)
     Q = mx.array(Q)
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
