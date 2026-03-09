@@ -37,7 +37,7 @@ jobs:
           uv run ruff format --check .
 
       - name: Test with pytest
-        run: uv run pytest tests/ --junit-xml=pytest-results.xml --cov=src/kabsch_horn --cov-report=xml:coverage.xml
+        run: uv run pytest --junit-xml=pytest-results.xml
 
       - name: Upload test results
         if: always()
@@ -73,7 +73,7 @@ jobs:
         run: uv sync --dev
 
       - name: Test with pytest
-        run: uv run pytest tests/ --junit-xml=pytest-results.xml --cov=src/kabsch_horn --cov-report=xml:coverage.xml
+        run: uv run pytest --junit-xml=pytest-results.xml
 
       - name: Upload test results
         if: always()
