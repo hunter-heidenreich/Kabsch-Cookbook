@@ -71,9 +71,9 @@ def _bwd(res, g):
     K = F * (Vht_dVh - mH(Vht_dVh))
 
     # 5. Build term
-    vmap_diag = jax.vmap(jnp.diag) if S.ndim > 1 else jnp.diag
-    S_diag = vmap_diag(grad_S)
-    S_mat = vmap_diag(S)
+    eye = jnp.eye(S.shape[-1], dtype=S.dtype)
+    S_diag = grad_S[..., jnp.newaxis] * eye
+    S_mat = S[..., jnp.newaxis] * eye
 
     term = S_diag - jnp.matmul(J, S_mat) - jnp.matmul(S_mat, K)
 
