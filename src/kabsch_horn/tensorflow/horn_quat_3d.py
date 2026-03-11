@@ -41,6 +41,11 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
 
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
@@ -137,6 +142,11 @@ def horn_with_scale(
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
+
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):

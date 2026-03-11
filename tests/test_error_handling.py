@@ -26,10 +26,10 @@ class TestErrorHandling:
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
 
-        with pytest.raises(adapter.mismatch_exception_type):
+        with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_dims_differ(
         self,
@@ -37,7 +37,7 @@ class TestErrorHandling:
         algo: str,
     ) -> None:
         """
-        Verifies that kabsch/umeyama raise or propagate an error when
+        Verifies that all algorithms raise or propagate an error when
         P and Q have mismatched dimensionality (D).
         """
         rng = np.random.default_rng(0)
@@ -48,7 +48,7 @@ class TestErrorHandling:
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
 
-        with pytest.raises(adapter.mismatch_exception_type):
+        with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])

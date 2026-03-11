@@ -7,7 +7,11 @@ def safe_svd(
     A: jnp.ndarray, eps: float = 1e-12
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Gradient-safe SVD. Masks near-zero singular value differences (< eps) in the
-    backward pass to prevent NaN gradients for symmetric or degenerate inputs."""
+    backward pass to prevent NaN gradients for symmetric or degenerate inputs.
+
+    Returns (U, S, V) where V = Vh.mH -- note this differs from jnp.linalg.svd,
+    which returns Vh (V transposed).
+    """
     U, S, Vh = jnp.linalg.svd(A)
     # Like PyTorch logic, we must return V to remain coherent with algorithm
     # JAX returns U, S, Vh (where Vh is V^T)
@@ -58,10 +62,9 @@ def _bwd(res, g):
 
     # 3. Safe F
     safe_D = jnp.where(jnp.abs(D) < eps, eps * jnp.sign(D + eps), D)
-    safe_D = jnp.where(jnp.eye(D.shape[-1], dtype=bool), 1.0, safe_D)
-
-    F = 1.0 / safe_D
-    F = jnp.where(jnp.eye(F.shape[-1], dtype=bool), 0.0, F)
+    diag_mask = jnp.eye(D.shape[-1], dtype=bool)
+    safe_D = jnp.where(diag_mask, 1.0, safe_D)
+    F = jnp.where(diag_mask, 0.0, 1.0 / safe_D)
 
     # 4. J and K
     Ut_dU = jnp.matmul(mH(U), grad_U)
@@ -141,10 +144,11 @@ def kabsch(
     U, _S, V = safe_svd(H)
 
     d = jnp.linalg.det(jnp.matmul(V, jnp.swapaxes(U, 1, 2)))
+    # Nudge by eps so sign() returns +1/-1 even when det is exactly 0;
+    # avoids sign(0) = 0 which would zero out R's last column
     d_sign = jnp.sign(d + 1e-12)
 
-    ones = jnp.ones_like(d_sign)
-    B_diag = jnp.stack([ones] * (D - 1) + [d_sign], axis=-1)
+    B_diag = jnp.ones((*d_sign.shape, D), dtype=d_sign.dtype).at[..., -1].set(d_sign)
 
     R = jnp.matmul(V * B_diag[:, jnp.newaxis, :], jnp.swapaxes(U, 1, 2))
 
@@ -235,10 +239,11 @@ def kabsch_umeyama(
     U, S, V = safe_svd(H)
 
     d = jnp.linalg.det(jnp.matmul(V, jnp.swapaxes(U, 1, 2)))
+    # Nudge by eps so sign() returns +1/-1 even when det is exactly 0;
+    # avoids sign(0) = 0 which would zero out R's last column
     d_sign = jnp.sign(d + 1e-12)
 
-    ones = jnp.ones_like(d_sign)
-    S_corr = jnp.stack([ones] * (D - 1) + [d_sign], axis=-1)
+    S_corr = jnp.ones((*d_sign.shape, D), dtype=d_sign.dtype).at[..., -1].set(d_sign)
 
     c = jnp.sum(S * S_corr, axis=-1) / jnp.clip(var_P, min=1e-12, max=None)
 

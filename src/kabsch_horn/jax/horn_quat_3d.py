@@ -38,15 +38,13 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
 
     mask = jnp.abs(D) < eps
     safe_D = jnp.where(mask, eps * jnp.sign(D + eps), D)
-    safe_D = jnp.where(jnp.eye(D.shape[-1], dtype=bool), 1.0, safe_D)
-
-    F = 1.0 / safe_D
-    F = jnp.where(jnp.eye(F.shape[-1], dtype=bool), 0.0, F)
+    diag_mask = jnp.eye(D.shape[-1], dtype=bool)
+    safe_D = jnp.where(diag_mask, 1.0, safe_D)
+    F = jnp.where(diag_mask, 0.0, 1.0 / safe_D)
 
     Vt_dV = jnp.matmul(mH(V), grad_V)
 
-    vmap_diag = jax.vmap(jnp.diag) if L.ndim > 1 else jnp.diag
-    L_diag = vmap_diag(grad_L)
+    L_diag = grad_L[..., jnp.newaxis] * diag_mask.astype(grad_L.dtype)
 
     term = L_diag + F * (Vt_dV - mH(Vt_dV)) / 2
     grad_A = jnp.matmul(V, jnp.matmul(term, mH(V)))
@@ -55,6 +53,68 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
 
 
 safe_eigh.defvjp(_eigh_fwd, _eigh_bwd)
+
+
+def _horn_core(
+    P: jnp.ndarray, Q: jnp.ndarray
+) -> tuple[
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+    jnp.ndarray,
+]:
+    """Core Horn computation on batched [B, N, 3] float32 arrays.
+
+    Returns (R, p, q, centroid_P, centroid_Q, H) where q = centered Q points
+    and H = p.T @ q (unscaled).
+    """
+    centroid_P = jnp.mean(P, axis=1, keepdims=True)
+    centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
+    p = P - centroid_P
+    q = Q - centroid_Q
+
+    H = jnp.matmul(jnp.swapaxes(p, 1, 2), q)  # [B, 3, 3], unscaled
+
+    S = H + jnp.swapaxes(H, 1, 2)
+    tr = jnp.trace(H, axis1=1, axis2=2)
+    Delta = jnp.stack(
+        [
+            H[..., 1, 2] - H[..., 2, 1],
+            H[..., 2, 0] - H[..., 0, 2],
+            H[..., 0, 1] - H[..., 1, 0],
+        ],
+        axis=-1,
+    )
+
+    B = H.shape[0]
+    I3 = jnp.broadcast_to(jnp.eye(3, dtype=H.dtype), (B, 3, 3))
+    top_row = jnp.concatenate([tr[..., jnp.newaxis], Delta], axis=-1)[:, jnp.newaxis, :]
+    bottom_block = jnp.concatenate(
+        [Delta[:, :, jnp.newaxis], S - tr[:, jnp.newaxis, jnp.newaxis] * I3], axis=-1
+    )
+    N_mat = jnp.concatenate([top_row, bottom_block], axis=-2)
+
+    _L, V = safe_eigh(N_mat)
+    q_opt = V[..., -1]
+    qw, qx, qy, qz = q_opt[..., 0], q_opt[..., 1], q_opt[..., 2], q_opt[..., 3]
+
+    row0 = jnp.stack(
+        [1 - 2 * (qy**2 + qz**2), 2 * (qx * qy - qw * qz), 2 * (qx * qz + qw * qy)],
+        axis=-1,
+    )
+    row1 = jnp.stack(
+        [2 * (qx * qy + qw * qz), 1 - 2 * (qx**2 + qz**2), 2 * (qy * qz - qw * qx)],
+        axis=-1,
+    )
+    row2 = jnp.stack(
+        [2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx**2 + qy**2)],
+        axis=-1,
+    )
+    R = jnp.stack([row0, row1, row2], axis=-2)
+
+    return R, p, q, centroid_P, centroid_Q, H
 
 
 def horn(
@@ -75,6 +135,11 @@ def horn(
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
         float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
@@ -91,62 +156,7 @@ def horn(
     P = P.reshape(-1, N_pts, 3)
     Q = Q.reshape(-1, N_pts, 3)
 
-    centroid_P = jnp.mean(P, axis=1, keepdims=True)
-    centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
-
-    p = P - centroid_P
-    q = Q - centroid_Q
-
-    H = jnp.matmul(jnp.swapaxes(p, 1, 2), q)
-
-    S = H + jnp.swapaxes(H, 1, 2)
-    tr = jnp.trace(H, axis1=1, axis2=2)
-
-    Delta = jnp.stack(
-        [
-            H[..., 1, 2] - H[..., 2, 1],
-            H[..., 2, 0] - H[..., 0, 2],
-            H[..., 0, 1] - H[..., 1, 0],
-        ],
-        axis=-1,
-    )
-
-    B = H.shape[0]
-    I3 = jnp.broadcast_to(jnp.eye(3, dtype=H.dtype), (B, 3, 3))
-
-    top_row = jnp.concatenate([tr[..., jnp.newaxis], Delta], axis=-1)[:, jnp.newaxis, :]
-    bottom_block = jnp.concatenate(
-        [Delta[:, :, jnp.newaxis], S - tr[:, jnp.newaxis, jnp.newaxis] * I3], axis=-1
-    )
-
-    N_mat = jnp.concatenate([top_row, bottom_block], axis=-2)
-
-    _L, V = safe_eigh(N_mat)
-    q_opt = V[..., -1]
-
-    qw = q_opt[..., 0]
-    qx = q_opt[..., 1]
-    qy = q_opt[..., 2]
-    qz = q_opt[..., 3]
-
-    R11 = 1 - 2 * (qy**2 + qz**2)
-    R12 = 2 * (qx * qy - qw * qz)
-    R13 = 2 * (qx * qz + qw * qy)
-    R21 = 2 * (qx * qy + qw * qz)
-    R22 = 1 - 2 * (qx**2 + qz**2)
-    R23 = 2 * (qy * qz - qw * qx)
-    R31 = 2 * (qx * qz - qw * qy)
-    R32 = 2 * (qy * qz + qw * qx)
-    R33 = 1 - 2 * (qx**2 + qy**2)
-
-    R = jnp.stack(
-        [
-            jnp.stack([R11, R12, R13], axis=-1),
-            jnp.stack([R21, R22, R23], axis=-1),
-            jnp.stack([R31, R32, R33], axis=-1),
-        ],
-        axis=-2,
-    )
+    R, p, q, centroid_P, centroid_Q, _H = _horn_core(P, Q)
 
     t = jnp.squeeze(centroid_Q, axis=1) - jnp.squeeze(
         jnp.matmul(centroid_P, jnp.swapaxes(R, 1, 2)), axis=1
@@ -197,6 +207,11 @@ def horn_with_scale(
         scale [...], RMSD [...].
         float16/bfloat16 inputs are upcast to float32 and downcast on output.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
@@ -213,67 +228,13 @@ def horn_with_scale(
     P = P.reshape(-1, N_pts, 3)
     Q = Q.reshape(-1, N_pts, 3)
 
-    centroid_P = jnp.mean(P, axis=1, keepdims=True)
-    centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
+    R, p, _q, centroid_P, centroid_Q, H = _horn_core(P, Q)
 
-    p = P - centroid_P
-    q = Q - centroid_Q
-
+    # H is unscaled (p.T @ q); var_P * N_pts = sum(sq(p)), so c = tr(R^T H) / sum(sq(p))
     var_P = jnp.sum(jnp.square(p), axis=(1, 2)) / N_pts
-
-    H = jnp.matmul(jnp.swapaxes(p, 1, 2), q) / N_pts
-
-    S = H + jnp.swapaxes(H, 1, 2)
-    tr = jnp.trace(H, axis1=1, axis2=2)
-
-    Delta = jnp.stack(
-        [
-            H[..., 1, 2] - H[..., 2, 1],
-            H[..., 2, 0] - H[..., 0, 2],
-            H[..., 0, 1] - H[..., 1, 0],
-        ],
-        axis=-1,
+    c = jnp.sum(R * jnp.swapaxes(H, 1, 2), axis=(1, 2)) / (
+        jnp.clip(var_P, min=1e-12) * N_pts
     )
-
-    B = H.shape[0]
-    I3 = jnp.broadcast_to(jnp.eye(3, dtype=H.dtype), (B, 3, 3))
-
-    top_row = jnp.concatenate([tr[..., jnp.newaxis], Delta], axis=-1)[:, jnp.newaxis, :]
-    bottom_block = jnp.concatenate(
-        [Delta[:, :, jnp.newaxis], S - tr[:, jnp.newaxis, jnp.newaxis] * I3], axis=-1
-    )
-
-    N_mat = jnp.concatenate([top_row, bottom_block], axis=-2)
-
-    _L, V = safe_eigh(N_mat)
-    q_opt = V[..., -1]
-
-    qw = q_opt[..., 0]
-    qx = q_opt[..., 1]
-    qy = q_opt[..., 2]
-    qz = q_opt[..., 3]
-
-    R11 = 1 - 2 * (qy**2 + qz**2)
-    R12 = 2 * (qx * qy - qw * qz)
-    R13 = 2 * (qx * qz + qw * qy)
-    R21 = 2 * (qx * qy + qw * qz)
-    R22 = 1 - 2 * (qx**2 + qz**2)
-    R23 = 2 * (qy * qz - qw * qx)
-    R31 = 2 * (qx * qz - qw * qy)
-    R32 = 2 * (qy * qz + qw * qx)
-    R33 = 1 - 2 * (qx**2 + qy**2)
-
-    R = jnp.stack(
-        [
-            jnp.stack([R11, R12, R13], axis=-1),
-            jnp.stack([R21, R22, R23], axis=-1),
-            jnp.stack([R31, R32, R33], axis=-1),
-        ],
-        axis=-2,
-    )
-
-    RH = jnp.sum(R * jnp.swapaxes(H, 1, 2), axis=(1, 2))
-    c = RH / jnp.clip(var_P, min=1e-12, max=None)
 
     t = jnp.squeeze(centroid_Q, axis=1) - c[:, jnp.newaxis] * jnp.squeeze(
         jnp.matmul(centroid_P, jnp.swapaxes(R, 1, 2)), axis=1

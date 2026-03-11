@@ -60,6 +60,10 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     """
     P = mx.array(P)
     Q = mx.array(Q)
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
     _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
@@ -164,6 +168,10 @@ def horn_with_scale(
     """
     P = mx.array(P)
     Q = mx.array(Q)
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
     _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):

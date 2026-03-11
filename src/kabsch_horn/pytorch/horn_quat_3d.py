@@ -50,6 +50,10 @@ def horn(
     Computes optimal rotation and translation to align P to Q using Horn's quaternion
     method.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
     assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
@@ -166,6 +170,10 @@ def horn_with_scale(
     """
     Computes optimal rotation, translation, and scale using Horn's method.
     """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
     assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
