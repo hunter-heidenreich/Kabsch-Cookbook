@@ -54,7 +54,8 @@ def horn(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
-    assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
@@ -174,7 +175,8 @@ def horn_with_scale(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
-    assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)

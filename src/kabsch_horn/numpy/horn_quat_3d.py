@@ -1,12 +1,99 @@
 import numpy as np
 
 
+def _build_horn_matrix(H: np.ndarray) -> np.ndarray:
+    """Build the 4x4 symmetric N matrix from cross-covariance H.
+
+    Args:
+        H: Cross-covariance matrices, shape (B, 3, 3).
+
+    Returns:
+        N matrix, shape (B, 4, 4).
+    """
+    S = H + H.transpose(0, 2, 1)
+    tr = H.diagonal(axis1=-2, axis2=-1).sum(-1)  # (B,)
+
+    Delta = np.stack(
+        [
+            H[..., 1, 2] - H[..., 2, 1],
+            H[..., 2, 0] - H[..., 0, 2],
+            H[..., 0, 1] - H[..., 1, 0],
+        ],
+        axis=-1,
+    )
+
+    B = H.shape[0]
+    I3 = np.broadcast_to(np.eye(3), (B, 3, 3))
+
+    top_row = np.concatenate([tr[..., np.newaxis], Delta], axis=-1)[:, np.newaxis, :]
+    bottom_block = np.concatenate(
+        [Delta[:, :, np.newaxis], S - tr[:, np.newaxis, np.newaxis] * I3], axis=-1
+    )
+
+    return np.concatenate([top_row, bottom_block], axis=-2)
+
+
+def _quat_to_rotation(q_opt: np.ndarray) -> np.ndarray:
+    """Convert unit quaternions (B, 4) to rotation matrices (B, 3, 3)."""
+    qw = q_opt[..., 0]
+    qx = q_opt[..., 1]
+    qy = q_opt[..., 2]
+    qz = q_opt[..., 3]
+
+    R11 = 1 - 2 * (qy**2 + qz**2)
+    R12 = 2 * (qx * qy - qw * qz)
+    R13 = 2 * (qx * qz + qw * qy)
+    R21 = 2 * (qx * qy + qw * qz)
+    R22 = 1 - 2 * (qx**2 + qz**2)
+    R23 = 2 * (qy * qz - qw * qx)
+    R31 = 2 * (qx * qz - qw * qy)
+    R32 = 2 * (qy * qz + qw * qx)
+    R33 = 1 - 2 * (qx**2 + qy**2)
+
+    return np.stack(
+        [
+            np.stack([R11, R12, R13], axis=-1),
+            np.stack([R21, R22, R23], axis=-1),
+            np.stack([R31, R32, R33], axis=-1),
+        ],
+        axis=-2,
+    )
+
+
 def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    """
+    Computes optimal rotation and translation to align P to Q using Horn's
+    quaternion method.
+
+    Strictly 3D only. Forward-pass only (NumPy has no autograd).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+    """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
+
+    orig_shape = P.shape
+    batch_dims = orig_shape[:-2]
+    N, D = orig_shape[-2:]
+
+    P = np.reshape(P, (-1, N, D))
+    Q = np.reshape(Q, (-1, N, D))
 
     centroid_P = np.mean(P, axis=1, keepdims=True)
     centroid_Q = np.mean(Q, axis=1, keepdims=True)
@@ -16,55 +103,13 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
 
     H = np.matmul(p.transpose(0, 2, 1), q)
 
-    S = H + H.transpose(0, 2, 1)
-    tr = np.trace(H, axis1=1, axis2=2)
-
-    Delta = np.stack(
-        [
-            H[..., 1, 2] - H[..., 2, 1],
-            H[..., 2, 0] - H[..., 0, 2],
-            H[..., 0, 1] - H[..., 1, 0],
-        ],
-        axis=-1,
-    )
-
-    B = H.shape[0]
-    I3 = np.broadcast_to(np.eye(3), (B, 3, 3))
-
-    top_row = np.concatenate([tr[..., np.newaxis], Delta], axis=-1)[:, np.newaxis, :]
-    bottom_block = np.concatenate(
-        [Delta[:, :, np.newaxis], S - tr[:, np.newaxis, np.newaxis] * I3], axis=-1
-    )
-
-    N = np.concatenate([top_row, bottom_block], axis=-2)
+    N_mat = _build_horn_matrix(H)
 
     # eigh returns eigenvalues in ascending order
-    _L, V = np.linalg.eigh(N)
+    _L, V = np.linalg.eigh(N_mat)
     q_opt = V[..., -1]
 
-    qw = q_opt[..., 0]
-    qx = q_opt[..., 1]
-    qy = q_opt[..., 2]
-    qz = q_opt[..., 3]
-
-    R11 = 1 - 2 * (qy**2 + qz**2)
-    R12 = 2 * (qx * qy - qw * qz)
-    R13 = 2 * (qx * qz + qw * qy)
-    R21 = 2 * (qx * qy + qw * qz)
-    R22 = 1 - 2 * (qx**2 + qz**2)
-    R23 = 2 * (qy * qz - qw * qx)
-    R31 = 2 * (qx * qz - qw * qy)
-    R32 = 2 * (qy * qz + qw * qx)
-    R33 = 1 - 2 * (qx**2 + qy**2)
-
-    R = np.stack(
-        [
-            np.stack([R11, R12, R13], axis=-1),
-            np.stack([R21, R22, R23], axis=-1),
-            np.stack([R31, R32, R33], axis=-1),
-        ],
-        axis=-2,
-    )
+    R = _quat_to_rotation(q_opt)
 
     t = np.squeeze(centroid_Q, axis=1) - np.squeeze(
         np.matmul(centroid_P, R.transpose(0, 2, 1)), axis=1
@@ -73,27 +118,58 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
     aligned = np.matmul(p, R.transpose(0, 2, 1))
     rmsd = np.sqrt(
         np.clip(
-            np.sum(np.square(aligned - q), axis=(1, 2)) / P.shape[1],
-            a_min=1e-12,
+            np.sum(np.square(aligned - q), axis=(1, 2)) / N,
+            a_min=0.0,
             a_max=None,
         )
     )
 
     if is_single:
         return R[0], t[0], rmsd[0]
-    return R, t, rmsd
+    return (
+        R.reshape(*batch_dims, D, D),
+        t.reshape(*batch_dims, D),
+        rmsd.reshape(*batch_dims),
+    )
 
 
 def horn_with_scale(
     P: np.ndarray, Q: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    """
+    Computes optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    Strictly 3D only. Forward-pass only (NumPy has no autograd).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+    """
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
 
-    _B, N_pts, _D = P.shape
+    orig_shape = P.shape
+    batch_dims = orig_shape[:-2]
+    N, D = orig_shape[-2:]
+
+    P = np.reshape(P, (-1, N, D))
+    Q = np.reshape(Q, (-1, N, D))
 
     centroid_P = np.mean(P, axis=1, keepdims=True)
     centroid_Q = np.mean(Q, axis=1, keepdims=True)
@@ -101,58 +177,16 @@ def horn_with_scale(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = np.sum(np.square(p), axis=(1, 2)) / N_pts
+    var_P = np.sum(np.square(p), axis=(1, 2)) / N
 
-    H = np.matmul(p.transpose(0, 2, 1), q) / N_pts
+    H = np.matmul(p.transpose(0, 2, 1), q) / N
 
-    S = H + H.transpose(0, 2, 1)
-    tr = np.trace(H, axis1=1, axis2=2)
+    N_mat = _build_horn_matrix(H)
 
-    Delta = np.stack(
-        [
-            H[..., 1, 2] - H[..., 2, 1],
-            H[..., 2, 0] - H[..., 0, 2],
-            H[..., 0, 1] - H[..., 1, 0],
-        ],
-        axis=-1,
-    )
-
-    B = H.shape[0]
-    I3 = np.broadcast_to(np.eye(3), (B, 3, 3))
-
-    top_row = np.concatenate([tr[..., np.newaxis], Delta], axis=-1)[:, np.newaxis, :]
-    bottom_block = np.concatenate(
-        [Delta[:, :, np.newaxis], S - tr[:, np.newaxis, np.newaxis] * I3], axis=-1
-    )
-
-    N = np.concatenate([top_row, bottom_block], axis=-2)
-
-    _L, V = np.linalg.eigh(N)
+    _L, V = np.linalg.eigh(N_mat)
     q_opt = V[..., -1]
 
-    qw = q_opt[..., 0]
-    qx = q_opt[..., 1]
-    qy = q_opt[..., 2]
-    qz = q_opt[..., 3]
-
-    R11 = 1 - 2 * (qy**2 + qz**2)
-    R12 = 2 * (qx * qy - qw * qz)
-    R13 = 2 * (qx * qz + qw * qy)
-    R21 = 2 * (qx * qy + qw * qz)
-    R22 = 1 - 2 * (qx**2 + qz**2)
-    R23 = 2 * (qy * qz - qw * qx)
-    R31 = 2 * (qx * qz - qw * qy)
-    R32 = 2 * (qy * qz + qw * qx)
-    R33 = 1 - 2 * (qx**2 + qy**2)
-
-    R = np.stack(
-        [
-            np.stack([R11, R12, R13], axis=-1),
-            np.stack([R21, R22, R23], axis=-1),
-            np.stack([R31, R32, R33], axis=-1),
-        ],
-        axis=-2,
-    )
+    R = _quat_to_rotation(q_opt)
 
     RH = np.sum(R * H.transpose(0, 2, 1), axis=(1, 2))
     c = RH / np.clip(var_P, a_min=1e-12, a_max=None)
@@ -167,9 +201,14 @@ def horn_with_scale(
     )
     diff = aligned_P - Q
     rmsd = np.sqrt(
-        np.clip(np.sum(np.square(diff), axis=(1, 2)) / N_pts, a_min=1e-12, a_max=None)
+        np.clip(np.sum(np.square(diff), axis=(1, 2)) / N, a_min=0.0, a_max=None)
     )
 
     if is_single:
         return R[0], t[0], c[0], rmsd[0]
-    return R, t, c, rmsd
+    return (
+        R.reshape(*batch_dims, D, D),
+        t.reshape(*batch_dims, D),
+        c.reshape(*batch_dims),
+        rmsd.reshape(*batch_dims),
+    )

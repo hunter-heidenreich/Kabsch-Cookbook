@@ -114,6 +114,8 @@ def kabsch(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
@@ -207,6 +209,8 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
