@@ -141,18 +141,17 @@ class TestKabschRmsdWrappers:
 
 
 class TestSinglePoint:
-    """Edge case: N=1 (single point pair) -- underdetermined, but should not crash."""
+    """Edge case: N=1 (single point pair) -- rejected as underdetermined."""
 
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
-    def test_single_point_returns_finite_outputs(
+    def test_single_point_raises_value_error(
         self,
         adapter: FrameworkAdapter,
         algo: str,
     ) -> None:
         """
-        A single point pair is maximally underdetermined. Both algorithms should
-        succeed and return finite outputs (RMSD == 0 since perfect fit is trivial).
+        A single point pair is underdetermined; all frameworks must raise ValueError.
         """
         P_np = np.array([[1.0, 2.0, 3.0]], dtype=np.float64)
         Q_np = np.array([[4.0, 5.0, 6.0]], dtype=np.float64)
@@ -161,11 +160,5 @@ class TestSinglePoint:
         Q = adapter.convert_in(Q_np)
         func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
 
-        res = func(P, Q)
-
-        for tensor in res:
-            val = adapter.convert_out(tensor)
-            assert np.isfinite(val).all(), f"Non-finite output in {algo} with N=1"
-
-        rmsd = float(adapter.convert_out(res[-1]))
-        assert rmsd == pytest.approx(0.0, abs=adapter.atol)
+        with pytest.raises(ValueError, match="2 points"):
+            func(P, Q)
