@@ -44,7 +44,7 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
 
     Vt_dV = jnp.matmul(mH(V), grad_V)
 
-    L_diag = grad_L[..., jnp.newaxis] * jnp.eye(L.shape[-1], dtype=grad_L.dtype)
+    L_diag = grad_L[..., jnp.newaxis] * diag_mask.astype(grad_L.dtype)
 
     term = L_diag + F * (Vt_dV - mH(Vt_dV)) / 2
     grad_A = jnp.matmul(V, jnp.matmul(term, mH(V)))
@@ -67,7 +67,8 @@ def _horn_core(
 ]:
     """Core Horn computation on batched [B, N, 3] float32 arrays.
 
-    Returns (R, p, q, centroid_P, centroid_Q, H) where H = p.T @ q (unscaled).
+    Returns (R, p, q, centroid_P, centroid_Q, H) where q = centered Q points
+    and H = p.T @ q (unscaled).
     """
     centroid_P = jnp.mean(P, axis=1, keepdims=True)
     centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
