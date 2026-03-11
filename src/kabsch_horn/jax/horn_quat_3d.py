@@ -167,7 +167,7 @@ def horn(
     rmsd = jnp.sqrt(
         jnp.clip(
             jnp.sum(jnp.square(aligned - q), axis=(1, 2)) / N_pts,
-            min=0.0,
+            min=1e-12,
             max=None,
         )
     )
@@ -248,7 +248,7 @@ def horn_with_scale(
     )
     diff = aligned_P - Q
     rmsd = jnp.sqrt(
-        jnp.clip(jnp.sum(jnp.square(diff), axis=(1, 2)) / N_pts, min=0.0, max=None)
+        jnp.clip(jnp.sum(jnp.square(diff), axis=(1, 2)) / N_pts, min=1e-12, max=None)
     )
 
     if is_single:
