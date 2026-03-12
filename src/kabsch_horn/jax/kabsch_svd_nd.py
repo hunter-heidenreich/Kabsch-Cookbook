@@ -61,7 +61,7 @@ def _bwd(res, g):
     D = S_sq[..., jnp.newaxis] - S_sq[..., jnp.newaxis, :]  # BxDxD
 
     # 3. Safe F
-    safe_D = jnp.where(jnp.abs(D) < eps, eps * jnp.sign(D + eps), D)
+    safe_D = jnp.where(jnp.abs(D) < eps, jnp.where(D >= 0, eps, -eps), D)
     diag_mask = jnp.eye(D.shape[-1], dtype=bool)
     safe_D = jnp.where(diag_mask, 1.0, safe_D)
     F = jnp.where(diag_mask, 0.0, 1.0 / safe_D)

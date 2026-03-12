@@ -20,11 +20,14 @@ class SafeSVD(torch.autograd.Function):
             # NaN or degenerate input: propagate NaN without crashing.
             # torch.linalg.svd raises rather than returning NaN, so we handle
             # it explicitly to satisfy the NaN-propagation contract.
-            nan_mat = A.new_full(A.shape, float("nan"))
-            nan_s = A.new_full(A.shape[:-1], float("nan"))
-            ctx.save_for_backward(nan_mat, nan_s, nan_mat)
+            # U is [..., M, M], S is [..., min(M,N)], Vh is [..., N, N]
+            nan_u = A.new_full((*A.shape[:-1], A.shape[-2]), float("nan"))
+            M, N = A.shape[-2], A.shape[-1]
+            nan_s = A.new_full((*A.shape[:-2], min(M, N)), float("nan"))
+            nan_vh = A.new_full((*A.shape[:-2], A.shape[-1], A.shape[-1]), float("nan"))
+            ctx.save_for_backward(nan_u, nan_s, nan_vh)
             ctx.eps = eps
-            return nan_mat, nan_s, nan_mat
+            return nan_u, nan_s, nan_vh
         # In PyTorch 1.11+, linalg.svd returns Vh (V^T or V^H).
         # We want V for the standard Kabsch logic, so V = Vh.transpose(-2, -1)
         V = Vh.mH  # Conjugate transpose / standard transpose for real.
@@ -66,8 +69,8 @@ class SafeSVD(torch.autograd.Function):
         D_abs = torch.abs(D)
         mask = D_abs < eps
 
-        # Safe denominator replacing small elements with eps * sign
-        safe_D = torch.where(mask, eps * torch.sign(D + eps), D)
+        # Safe denominator preserving sign for sub-eps values
+        safe_D = torch.where(mask, torch.where(D >= 0, eps, -eps), D)
 
         # Protect diagonal from 1/0
         safe_D.diagonal(dim1=-2, dim2=-1).fill_(1.0)

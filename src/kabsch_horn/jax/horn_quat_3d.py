@@ -37,7 +37,7 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
     D = L[..., jnp.newaxis, :] - L[..., jnp.newaxis]
 
     mask = jnp.abs(D) < eps
-    safe_D = jnp.where(mask, eps * jnp.sign(D + eps), D)
+    safe_D = jnp.where(mask, jnp.where(D >= 0, eps, -eps), D)
     diag_mask = jnp.eye(D.shape[-1], dtype=bool)
     safe_D = jnp.where(diag_mask, 1.0, safe_D)
     F = jnp.where(diag_mask, 0.0, 1.0 / safe_D)

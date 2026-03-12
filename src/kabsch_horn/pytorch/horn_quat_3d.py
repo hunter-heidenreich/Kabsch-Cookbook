@@ -27,7 +27,7 @@ class SafeEigh(torch.autograd.Function):
 
         # 2. Mask unstable divides directly
         mask = torch.abs(D) < eps
-        safe_D = torch.where(mask, eps * torch.sign(D + eps), D)
+        safe_D = torch.where(mask, torch.where(D >= 0, eps, -eps), D)
 
         # 3. Prevent diagonal inversion problems outright
         safe_D.diagonal(dim1=-2, dim2=-1).fill_(1.0)
