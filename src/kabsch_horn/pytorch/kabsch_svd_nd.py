@@ -26,7 +26,7 @@ class SafeSVD(torch.autograd.Function):
             nan_vh = A.new_full((*A.shape[:-2], A.shape[-1], A.shape[-1]), float("nan"))
             ctx.save_for_backward(nan_u, nan_s, nan_vh)
             ctx.eps = eps
-            return nan_u, nan_s, nan_u
+            return nan_u, nan_s, nan_vh
         # In PyTorch 1.11+, linalg.svd returns Vh (V^T or V^H).
         # We want V for the standard Kabsch logic, so V = Vh.transpose(-2, -1)
         V = Vh.mH  # Conjugate transpose / standard transpose for real.
