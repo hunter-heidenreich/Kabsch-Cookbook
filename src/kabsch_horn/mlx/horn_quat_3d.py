@@ -23,7 +23,7 @@ def safe_eigh_bwd(primals, cotangents, outputs):
     eye = mx.eye(D.shape[-1], dtype=D.dtype)
     eps = 1e-12
     mask = mx.abs(D) < eps
-    safe_D = mx.where(mask, eps * mx.sign(D + eps), D)
+    safe_D = mx.where(mask, mx.where(D >= 0, eps, -eps), D)
     # Set diagonal to 1.0 so 1/safe_D is defined everywhere; zero it out after
     safe_D = mx.where(eye == 1, mx.ones_like(safe_D), safe_D)
 

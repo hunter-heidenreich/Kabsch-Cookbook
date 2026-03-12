@@ -34,7 +34,7 @@ def safe_svd(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
         # to prevent 1/0 = inf on off-diagonal entries where S_i ≈ S_j
         eps = tf.cast(1e-12, S.dtype)
         mask = tf.abs(S_sq_diff) < eps
-        safe_D = tf.where(mask, eps * tf.sign(S_sq_diff + eps), S_sq_diff)
+        safe_D = tf.where(mask, tf.where(S_sq_diff >= 0, eps, -eps), S_sq_diff)
         safe_D = tf.linalg.set_diag(safe_D, tf.ones_like(tf.linalg.diag_part(safe_D)))
         F = 1.0 / safe_D
         # Zero out the diagonal of F

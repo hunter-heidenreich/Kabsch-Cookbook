@@ -19,7 +19,7 @@ def call_safe_eigh(A):
         D = tf.expand_dims(L, -2) - tf.expand_dims(L, -1)
 
         mask = tf.abs(D) < eps
-        safe_D = tf.where(mask, eps * tf.sign(D + eps), D)
+        safe_D = tf.where(mask, tf.where(D >= 0, eps, -eps), D)
         safe_D = tf.linalg.set_diag(safe_D, tf.ones_like(tf.linalg.diag_part(safe_D)))
 
         F = 1.0 / safe_D
