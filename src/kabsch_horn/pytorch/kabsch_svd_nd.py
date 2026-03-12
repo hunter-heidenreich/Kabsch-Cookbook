@@ -20,11 +20,13 @@ class SafeSVD(torch.autograd.Function):
             # NaN or degenerate input: propagate NaN without crashing.
             # torch.linalg.svd raises rather than returning NaN, so we handle
             # it explicitly to satisfy the NaN-propagation contract.
-            nan_mat = A.new_full(A.shape, float("nan"))
+            # U is [..., M, M], S is [..., min(M,N)], Vh is [..., N, N]
+            nan_u = A.new_full((*A.shape[:-1], A.shape[-2]), float("nan"))
             nan_s = A.new_full(A.shape[:-1], float("nan"))
-            ctx.save_for_backward(nan_mat, nan_s, nan_mat)
+            nan_vh = A.new_full((*A.shape[:-2], A.shape[-1], A.shape[-1]), float("nan"))
+            ctx.save_for_backward(nan_u, nan_s, nan_vh)
             ctx.eps = eps
-            return nan_mat, nan_s, nan_mat
+            return nan_u, nan_s, nan_u
         # In PyTorch 1.11+, linalg.svd returns Vh (V^T or V^H).
         # We want V for the standard Kabsch logic, so V = Vh.transpose(-2, -1)
         V = Vh.mH  # Conjugate transpose / standard transpose for real.
