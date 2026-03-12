@@ -72,12 +72,13 @@ class SafeSVD(torch.autograd.Function):
         # Safe denominator preserving sign for sub-eps values
         safe_D = torch.where(mask, torch.where(D >= 0, eps, -eps), D)
 
-        # Protect diagonal from 1/0
-        safe_D.diagonal(dim1=-2, dim2=-1).fill_(1.0)
+        # Protect diagonal from 1/0 (out-of-place for torch.compile)
+        diag_mask = torch.eye(safe_D.shape[-1], dtype=torch.bool, device=safe_D.device)
+        safe_D = torch.where(diag_mask, torch.ones_like(safe_D), safe_D)
 
         F = 1.0 / safe_D
         # Set diagonal to exactly 0 to satisfy Hadamard condition
-        F.diagonal(dim1=-2, dim2=-1).zero_()
+        F = torch.where(diag_mask, torch.zeros_like(F), F)
 
         # 4. Compute J and K
         Ut_dU = torch.matmul(U.mH, grad_U)
