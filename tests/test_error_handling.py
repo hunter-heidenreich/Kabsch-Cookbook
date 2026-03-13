@@ -178,18 +178,25 @@ class TestNumpyFloat16Upcast:
 
 
 class TestNumpyFloat32DtypePromotion:
-    """NumPy horn functions should preserve float32 (not promote to float64)."""
+    """NumPy functions should preserve float32 (not promote to float64)."""
 
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    def test_horn_float32_stays_float32(self, algo: str) -> None:
-        from kabsch_horn.numpy import horn, horn_with_scale
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_float32_stays_float32(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
 
         rng = np.random.default_rng(0)
         P = rng.random((5, 3)).astype(np.float32)
         Q = rng.random((5, 3)).astype(np.float32)
 
-        func = horn if algo == "horn" else horn_with_scale
-        result = func(P, Q)
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+        result = func_map[algo](P, Q)
 
         for arr in result:
             assert arr.dtype == np.float32, f"Expected float32 output, got {arr.dtype}"
