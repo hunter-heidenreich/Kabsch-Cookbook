@@ -129,6 +129,29 @@ class TestErrorHandling:
                 assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
 
 
+class TestNumpySinglePointRejection:
+    """NumPy N=1 inputs must raise ValueError for all algorithms."""
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_numpy_single_point_raises_value_error(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        P = np.array([[1.0, 2.0, 3.0]], dtype=np.float64)
+        Q = np.array([[4.0, 5.0, 6.0]], dtype=np.float64)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+
+        with pytest.raises(ValueError, match="2 points"):
+            func_map[algo](P, Q)
+
+
 class TestNumpyFloat16Upcast:
     """NumPy float16 inputs should be upcast internally (not raise TypeError)."""
 
