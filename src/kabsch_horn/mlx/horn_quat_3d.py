@@ -65,10 +65,6 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
     _warn_if_float64(P, Q)
-    if P.shape != Q.shape:
-        raise ValueError(
-            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
-        )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
@@ -181,10 +177,6 @@ def horn_with_scale(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
     _warn_if_float64(P, Q)
-    if P.shape != Q.shape:
-        raise ValueError(
-            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
-        )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
