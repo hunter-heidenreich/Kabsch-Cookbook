@@ -176,6 +176,27 @@ class TestNumpyFloat16Upcast:
         for arr in result:
             assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
 
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_numpy_float16_batched(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(1)
+        P = rng.random((2, 5, 3)).astype(np.float16)
+        Q = rng.random((2, 5, 3)).astype(np.float16)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+        result = func_map[algo](P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
+
 
 class TestNumpyFloat32DtypePromotion:
     """NumPy functions should preserve float32 (not promote to float64)."""
