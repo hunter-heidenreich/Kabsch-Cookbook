@@ -52,7 +52,7 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
-    is_single = tf.rank(P) == 2
+    is_single = len(P.shape) == 2
     if is_single:
         P = tf.expand_dims(P, 0)
         Q = tf.expand_dims(Q, 0)
@@ -156,7 +156,7 @@ def horn_with_scale(
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
-    is_single = tf.rank(P) == 2
+    is_single = len(P.shape) == 2
     if is_single:
         P = tf.expand_dims(P, 0)
         Q = tf.expand_dims(Q, 0)

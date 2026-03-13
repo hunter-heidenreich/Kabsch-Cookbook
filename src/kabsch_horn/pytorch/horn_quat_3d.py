@@ -29,10 +29,11 @@ class SafeEigh(torch.autograd.Function):
         mask = torch.abs(D) < eps
         safe_D = torch.where(mask, torch.where(D >= 0, eps, -eps), D)
 
-        # 3. Prevent diagonal inversion problems outright
-        safe_D.diagonal(dim1=-2, dim2=-1).fill_(1.0)
+        # 3. Prevent diagonal inversion problems (out-of-place for torch.compile)
+        diag_mask = torch.eye(safe_D.shape[-1], dtype=torch.bool, device=safe_D.device)
+        safe_D = torch.where(diag_mask, torch.ones_like(safe_D), safe_D)
         F = 1.0 / safe_D
-        F.diagonal(dim1=-2, dim2=-1).zero_()
+        F = torch.where(diag_mask, torch.zeros_like(F), F)
 
         # 4. Standard backprop algebra using safe denominators
         Vt_dV = torch.matmul(V.mH, grad_V)
