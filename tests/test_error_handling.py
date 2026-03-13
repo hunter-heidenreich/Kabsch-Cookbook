@@ -197,6 +197,20 @@ class TestNumpyFloat16Upcast:
         for arr in result:
             assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
 
+    @pytest.mark.parametrize("algo", ["kabsch", "kabsch_umeyama"])
+    def test_numpy_float16_higher_dim(self, algo: str) -> None:
+        from kabsch_horn.numpy import kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(2)
+        P = rng.random((5, 4)).astype(np.float16)
+        Q = rng.random((5, 4)).astype(np.float16)
+
+        func = kabsch if algo == "kabsch" else kabsch_umeyama
+        result = func(P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
+
 
 class TestNumpyFloat32DtypePromotion:
     """NumPy functions should preserve float32 (not promote to float64)."""
