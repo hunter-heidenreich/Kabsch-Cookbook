@@ -2,6 +2,13 @@ import mlx.core as mx
 
 from ._utils import _warn_if_float64
 
+_DTYPE_EPS = {
+    mx.float16: 9.765625e-4,
+    mx.bfloat16: 7.8125e-3,
+    mx.float32: 1.1920929e-7,
+    mx.float64: 2.220446049250313e-16,
+}
+
 
 @mx.custom_function
 def safe_svd(A: mx.array) -> tuple[mx.array, mx.array, mx.array]:
@@ -46,8 +53,9 @@ def safe_svd_bwd(primals, cotangents, outputs):
     S_sq_diff = mx.expand_dims(S_sq, -2) - mx.expand_dims(S_sq, -1)
 
     # Add epsilon to diagonal before reciprocal
+    eps = _DTYPE_EPS.get(S_sq_diff.dtype, 1.1920929e-7)
     eye = mx.eye(S_sq_diff.shape[-1], dtype=S_sq_diff.dtype)
-    S_sq_diff_safe = mx.where(mx.abs(S_sq_diff) < 1e-12, eye * 1e-12, S_sq_diff)
+    S_sq_diff_safe = mx.where(mx.abs(S_sq_diff) < eps, eye * eps, S_sq_diff)
 
     F = 1.0 / S_sq_diff_safe
     F = mx.where(eye == 1, mx.zeros_like(F), F)
@@ -166,7 +174,8 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     P_aligned = mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    rmsd = mx.sqrt(mx.maximum(mse, _eps))
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)
@@ -273,7 +282,8 @@ def kabsch_umeyama(
         axis=-1,
     )
 
-    c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, 1e-12)
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, _eps)
 
     centroid_P_rot = mx.matmul(centroid_P, R.swapaxes(-1, -2))
     t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
@@ -284,7 +294,7 @@ def kabsch_umeyama(
     P_aligned = c_exp * mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    rmsd = mx.sqrt(mx.maximum(mse, _eps))
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)

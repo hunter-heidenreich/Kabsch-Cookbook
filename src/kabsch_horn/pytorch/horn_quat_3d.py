@@ -7,16 +7,15 @@ class SafeEigh(torch.autograd.Function):
     """
 
     @staticmethod
-    def forward(ctx, A: torch.Tensor, eps: float = 1e-12):
+    def forward(ctx, A: torch.Tensor):
         L, V = torch.linalg.eigh(A)
         ctx.save_for_backward(L, V)
-        ctx.eps = eps
         return L, V
 
     @staticmethod
     def backward(ctx, grad_L, grad_V):
         L, V = ctx.saved_tensors
-        eps = ctx.eps
+        eps = torch.finfo(L.dtype).eps
 
         grad_L = torch.zeros_like(L) if grad_L is None else grad_L
         grad_V = torch.zeros_like(V) if grad_V is None else grad_V
@@ -41,7 +40,7 @@ class SafeEigh(torch.autograd.Function):
 
         grad_A = torch.matmul(V, torch.matmul(term, V.mH))
 
-        return grad_A, None
+        return (grad_A,)
 
 
 def horn(
@@ -111,7 +110,7 @@ def horn(
     N = torch.cat([top_row, bottom_block], dim=-2)  # Bx4x4
 
     # 3. Extract the quaternion
-    _L, V = SafeEigh.apply(N, 1e-12)
+    _L, V = SafeEigh.apply(N)
     q_opt = V[..., -1]  # Bx4
 
     # 4. Convert to Rotation Matrix
@@ -146,8 +145,9 @@ def horn(
 
     # RMSD
     aligned = torch.matmul(p, R.transpose(1, 2))
+    _eps = torch.finfo(P.dtype).eps
     rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts, min=1e-12)
+        torch.clamp(torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts, min=_eps)
     )
 
     if is_single:
@@ -232,7 +232,7 @@ def horn_with_scale(
 
     N = torch.cat([top_row, bottom_block], dim=-2)
 
-    _L, V = SafeEigh.apply(N, 1e-12)
+    _L, V = SafeEigh.apply(N)
     q_opt = V[..., -1]
 
     qw = q_opt[..., 0]
@@ -259,8 +259,9 @@ def horn_with_scale(
         dim=-2,
     )
 
+    _eps = torch.finfo(P.dtype).eps
     RH = torch.sum(R * H.transpose(-1, -2), dim=(1, 2))
-    c = RH / torch.clamp(var_P, min=1e-12)
+    c = RH / torch.clamp(var_P, min=_eps)
 
     t = centroid_Q.squeeze(1) - c.unsqueeze(-1) * torch.squeeze(
         torch.matmul(centroid_P, R.transpose(1, 2)), 1
@@ -271,7 +272,7 @@ def horn_with_scale(
     ) + t.unsqueeze(1)
     diff = aligned_P - Q
     rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(diff), dim=(1, 2)) / N_pts, min=1e-12)
+        torch.clamp(torch.sum(torch.square(diff), dim=(1, 2)) / N_pts, min=_eps)
     )
 
     if is_single:

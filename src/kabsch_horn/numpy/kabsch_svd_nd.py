@@ -175,7 +175,8 @@ def kabsch_umeyama(
     S_corr = np.stack([np.ones_like(d_sign)] * (D - 1) + [d_sign], axis=-1)  # BxD
 
     # Scale
-    c = np.sum(S * S_corr, axis=-1) / np.clip(var_P, a_min=1e-12, a_max=None)  # B
+    _eps = np.finfo(P.dtype).eps
+    c = np.sum(S * S_corr, axis=-1) / np.clip(var_P, a_min=_eps, a_max=None)  # B
 
     # Optimal rotation
     R = np.matmul(V * S_corr[:, np.newaxis, :], U.transpose(0, 2, 1))  # BxDxD

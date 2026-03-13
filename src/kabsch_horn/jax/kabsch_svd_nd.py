@@ -4,7 +4,7 @@ import jax.numpy as jnp
 
 @jax.custom_vjp
 def safe_svd(
-    A: jnp.ndarray, eps: float = 1e-12
+    A: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Gradient-safe SVD. Masks near-zero singular value differences (< eps) in the
     backward pass to prevent NaN gradients for symmetric or degenerate inputs.
@@ -19,17 +19,17 @@ def safe_svd(
 
 
 def _fwd(
-    A: jnp.ndarray, eps: float
+    A: jnp.ndarray,
 ) -> tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple]:
     U, S, Vh = jnp.linalg.svd(A)
     # return primal outputs and residuals for backward pass
     V = jnp.swapaxes(jnp.conj(Vh), -1, -2)
-    return (U, S, V), (U, S, Vh, eps)
+    return (U, S, V), (U, S, Vh)
 
 
 def _bwd(res, g):
     # Retrieve
-    U, S, Vh, eps = res
+    U, S, Vh = res
     grad_U, grad_S, grad_V = g
 
     # Check if None or SymbolicZero
@@ -61,6 +61,7 @@ def _bwd(res, g):
     D = S_sq[..., jnp.newaxis] - S_sq[..., jnp.newaxis, :]  # BxDxD
 
     # 3. Safe F
+    eps = jnp.finfo(S.dtype).eps
     safe_D = jnp.where(jnp.abs(D) < eps, jnp.where(D >= 0, eps, -eps), D)
     diag_mask = jnp.eye(D.shape[-1], dtype=bool)
     safe_D = jnp.where(diag_mask, 1.0, safe_D)
@@ -82,7 +83,7 @@ def _bwd(res, g):
 
     grad_A = jnp.matmul(U, jnp.matmul(term, Vh))
 
-    return grad_A, None
+    return (grad_A,)
 
 
 safe_svd.defvjp(_fwd, _bwd)
@@ -148,7 +149,8 @@ def kabsch(
     d = jnp.linalg.det(jnp.matmul(V, jnp.swapaxes(U, 1, 2)))
     # Nudge by eps so sign() returns +1/-1 even when det is exactly 0;
     # avoids sign(0) = 0 which would zero out R's last column
-    d_sign = jnp.sign(d + 1e-12)
+    _eps = jnp.finfo(P.dtype).eps
+    d_sign = jnp.sign(d + _eps)
 
     B_diag = jnp.ones((*d_sign.shape, D), dtype=d_sign.dtype).at[..., -1].set(d_sign)
 
@@ -160,7 +162,7 @@ def kabsch(
 
     aligned = jnp.matmul(P, jnp.swapaxes(R, 1, 2)) + t[:, jnp.newaxis, :]
     diff_sq = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
-    rmsd = jnp.sqrt(jnp.clip(diff_sq, min=1e-12, max=None))
+    rmsd = jnp.sqrt(jnp.clip(diff_sq, min=_eps, max=None))
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -245,11 +247,12 @@ def kabsch_umeyama(
     d = jnp.linalg.det(jnp.matmul(V, jnp.swapaxes(U, 1, 2)))
     # Nudge by eps so sign() returns +1/-1 even when det is exactly 0;
     # avoids sign(0) = 0 which would zero out R's last column
-    d_sign = jnp.sign(d + 1e-12)
+    _eps = jnp.finfo(P.dtype).eps
+    d_sign = jnp.sign(d + _eps)
 
     S_corr = jnp.ones((*d_sign.shape, D), dtype=d_sign.dtype).at[..., -1].set(d_sign)
 
-    c = jnp.sum(S * S_corr, axis=-1) / jnp.clip(var_P, min=1e-12, max=None)
+    c = jnp.sum(S * S_corr, axis=-1) / jnp.clip(var_P, min=_eps, max=None)
 
     R = jnp.matmul(V * S_corr[:, jnp.newaxis, :], jnp.swapaxes(U, 1, 2))
 
@@ -263,7 +266,7 @@ def kabsch_umeyama(
     )
     rmsd = jnp.sqrt(
         jnp.clip(
-            jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N, min=1e-12, max=None
+            jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N, min=_eps, max=None
         )
     )
 

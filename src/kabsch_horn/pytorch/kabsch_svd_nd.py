@@ -12,7 +12,7 @@ class SafeSVD(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx, A: torch.Tensor, eps: float = 1e-12
+        ctx, A: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         try:
             U, S, Vh = torch.linalg.svd(A)
@@ -26,22 +26,20 @@ class SafeSVD(torch.autograd.Function):
             nan_s = A.new_full((*A.shape[:-2], min(M, N)), float("nan"))
             nan_vh = A.new_full((*A.shape[:-2], A.shape[-1], A.shape[-1]), float("nan"))
             ctx.save_for_backward(nan_u, nan_s, nan_vh)
-            ctx.eps = eps
             return nan_u, nan_s, nan_vh
         # In PyTorch 1.11+, linalg.svd returns Vh (V^T or V^H).
         # We want V for the standard Kabsch logic, so V = Vh.transpose(-2, -1)
         V = Vh.mH  # Conjugate transpose / standard transpose for real.
 
         ctx.save_for_backward(U, S, Vh)
-        ctx.eps = eps
         return U, S, V
 
     @staticmethod
     def backward(
         ctx, grad_U: torch.Tensor, grad_S: torch.Tensor, grad_V: torch.Tensor
-    ) -> tuple[torch.Tensor, None]:
+    ) -> tuple[torch.Tensor]:
         U, S, Vh = ctx.saved_tensors
-        eps = ctx.eps
+        eps = torch.finfo(S.dtype).eps
 
         # Backward pass of SVD for real matrices:
         # A = U S V^T
@@ -63,9 +61,9 @@ class SafeSVD(torch.autograd.Function):
         D = S_sq.unsqueeze(-1) - S_sq.unsqueeze(-2)  # BxDxD
 
         # 3. Safe F matrix computation
-        # eps=1e-12 masks singular value differences below float64 machine precision
-        # (~2e-16) but well above float32 loss (~1e-7), preventing division-by-zero
-        # NaN gradients without distorting the backward signal.
+        # eps = finfo(dtype).eps masks singular value differences at the dtype's
+        # machine precision, preventing division-by-zero NaN gradients without
+        # distorting the backward signal.
         D_abs = torch.abs(D)
         mask = D_abs < eps
 
@@ -97,17 +95,16 @@ class SafeSVD(torch.autograd.Function):
 
         grad_A = torch.matmul(U, torch.matmul(term, Vh))
 
-        return grad_A, None
+        return (grad_A,)
 
 
 def safe_svd(
-    A: torch.Tensor, eps: float = 1e-12
+    A: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Differentiable wrapper for SVD avoiding NaNs.
     Args:
         A: (..., D, D) tensor
-        eps: Small value for numerical stability
     Returns:
         U, S, V  (V, NOT Vh)
     """
@@ -115,7 +112,7 @@ def safe_svd(
     if A.ndim == 2:
         A = A.unsqueeze(0)
 
-    U, S, V = SafeSVD.apply(A, eps)
+    U, S, V = SafeSVD.apply(A)
 
     if len(orig_shape) == 2:
         return U.squeeze(0), S.squeeze(0), V.squeeze(0)
@@ -189,7 +186,7 @@ def kabsch(
     ones = torch.ones_like(d)
 
     # Sign safely mapping 0 determinant to 1.0 instead of 0.0
-    d_sign = torch.sign(d + 1e-12)
+    d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
     B_diag = torch.stack([ones] * (D - 1) + [d_sign], dim=-1)  # BxD
 
@@ -198,9 +195,10 @@ def kabsch(
 
     # RMSD (Adding eps for sqrt derivative safety near 0)
     aligned = torch.matmul(p, R.transpose(1, 2))
+    _eps = torch.finfo(P.dtype).eps
     rmsd = torch.sqrt(
         torch.clamp(
-            torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1], min=1e-12
+            torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1], min=_eps
         )
     )
 
@@ -294,13 +292,14 @@ def kabsch_umeyama(
 
     # Right-hand coordinate system
     d = torch.det(torch.matmul(V, U.transpose(1, 2)))
-    d_sign = torch.sign(d + 1e-12)
+    d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
     ones = torch.ones_like(d_sign)
     S_corr = torch.stack([ones] * (D - 1) + [d_sign], dim=-1)  # BxD
 
     # Scale
-    c = torch.sum(S * S_corr, dim=-1) / torch.clamp(var_P, min=1e-12)
+    _eps = torch.finfo(P.dtype).eps
+    c = torch.sum(S * S_corr, dim=-1) / torch.clamp(var_P, min=_eps)
 
     # Rotation
     R = torch.matmul(V * S_corr.unsqueeze(1), U.transpose(1, 2))
@@ -315,7 +314,7 @@ def kabsch_umeyama(
         P, R.transpose(1, 2)
     ) + t.unsqueeze(1)
     rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N, min=1e-12)
+        torch.clamp(torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N, min=_eps)
     )
 
     if is_single:

@@ -2,6 +2,13 @@ import mlx.core as mx
 
 from ._utils import _warn_if_float64
 
+_DTYPE_EPS = {
+    mx.float16: 9.765625e-4,
+    mx.bfloat16: 7.8125e-3,
+    mx.float32: 1.1920929e-7,
+    mx.float64: 2.220446049250313e-16,
+}
+
 
 @mx.custom_function
 def safe_eigh_fwd(A: mx.array) -> tuple[mx.array, mx.array]:
@@ -21,7 +28,7 @@ def safe_eigh_bwd(primals, cotangents, outputs):
     D = mx.expand_dims(L, -2) - mx.expand_dims(L, -1)
 
     eye = mx.eye(D.shape[-1], dtype=D.dtype)
-    eps = 1e-12
+    eps = _DTYPE_EPS.get(D.dtype, 1.1920929e-7)
     mask = mx.abs(D) < eps
     safe_D = mx.where(mask, mx.where(D >= 0, eps, -eps), D)
     # Set diagonal to 1.0 so 1/safe_D is defined everywhere; zero it out after
@@ -143,7 +150,8 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
     diff = aligned - q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    rmsd = mx.sqrt(mx.maximum(mse, _eps))
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)
@@ -251,7 +259,8 @@ def horn_with_scale(
     )
 
     RH = mx.sum(R * H.swapaxes(-1, -2), axis=(-1, -2))
-    c = RH / mx.maximum(var_P, 1e-12)
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    c = RH / mx.maximum(var_P, _eps)
 
     t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
         mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
@@ -262,7 +271,7 @@ def horn_with_scale(
     ) + mx.expand_dims(t, -2)
     diff = aligned_P - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    rmsd = mx.sqrt(mx.maximum(mse, _eps))
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)
