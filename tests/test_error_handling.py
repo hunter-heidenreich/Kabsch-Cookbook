@@ -127,3 +127,46 @@ class TestErrorHandling:
                 )
             else:
                 assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
+
+
+class TestNumpyFloat16Upcast:
+    """NumPy float16 inputs should be upcast internally (not raise TypeError)."""
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_numpy_float16_no_type_error(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(0)
+        P = rng.random((5, 3)).astype(np.float16)
+        Q = rng.random((5, 3)).astype(np.float16)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+        result = func_map[algo](P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
+
+
+class TestNumpyFloat32DtypePromotion:
+    """NumPy horn functions should preserve float32 (not promote to float64)."""
+
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    def test_horn_float32_stays_float32(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale
+
+        rng = np.random.default_rng(0)
+        P = rng.random((5, 3)).astype(np.float32)
+        Q = rng.random((5, 3)).astype(np.float32)
+
+        func = horn if algo == "horn" else horn_with_scale
+        result = func(P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float32, f"Expected float32 output, got {arr.dtype}"

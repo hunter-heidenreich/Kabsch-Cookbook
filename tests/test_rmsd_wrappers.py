@@ -143,7 +143,7 @@ class TestKabschRmsdWrappers:
 class TestSinglePoint:
     """Edge case: N=1 (single point pair) -- rejected as underdetermined."""
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_single_point_raises_value_error(
         self,
@@ -158,7 +158,13 @@ class TestSinglePoint:
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func_map = {
+            "kabsch": adapter.kabsch,
+            "umeyama": adapter.kabsch_umeyama,
+            "horn": adapter.horn,
+            "horn_with_scale": adapter.horn_with_scale,
+        }
+        func = func_map[algo]
 
         with pytest.raises(ValueError, match="2 points"):
             func(P, Q)

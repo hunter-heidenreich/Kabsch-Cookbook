@@ -23,7 +23,7 @@ def _build_horn_matrix(H: np.ndarray) -> np.ndarray:
     )
 
     B = H.shape[0]
-    I3 = np.broadcast_to(np.eye(3), (B, 3, 3))
+    I3 = np.broadcast_to(np.eye(3, dtype=H.dtype), (B, 3, 3))
 
     top_row = np.concatenate([tr[..., np.newaxis], Delta], axis=-1)[:, np.newaxis, :]
     bottom_block = np.concatenate(
@@ -83,6 +83,11 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    orig_dtype = P.dtype
+    if orig_dtype in (np.float16,):
+        P = P.astype(np.float32)
+        Q = Q.astype(np.float32)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
@@ -125,12 +130,16 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
     )
 
     if is_single:
-        return R[0], t[0], rmsd[0]
-    return (
-        R.reshape(*batch_dims, D, D),
-        t.reshape(*batch_dims, D),
-        rmsd.reshape(*batch_dims),
-    )
+        R, t, rmsd = R[0], t[0], rmsd[0]
+    else:
+        R = R.reshape(*batch_dims, D, D)
+        t = t.reshape(*batch_dims, D)
+        rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (np.float16,):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+    return R, t, rmsd
 
 
 def horn_with_scale(
@@ -158,6 +167,11 @@ def horn_with_scale(
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+
+    orig_dtype = P.dtype
+    if orig_dtype in (np.float16,):
+        P = P.astype(np.float32)
+        Q = Q.astype(np.float32)
 
     is_single = P.ndim == 2
     if is_single:
@@ -205,10 +219,15 @@ def horn_with_scale(
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
-    return (
-        R.reshape(*batch_dims, D, D),
-        t.reshape(*batch_dims, D),
-        c.reshape(*batch_dims),
-        rmsd.reshape(*batch_dims),
-    )
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+    else:
+        R = R.reshape(*batch_dims, D, D)
+        t = t.reshape(*batch_dims, D)
+        c = c.reshape(*batch_dims)
+        rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (np.float16,):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        c = c.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+    return R, t, c, rmsd
