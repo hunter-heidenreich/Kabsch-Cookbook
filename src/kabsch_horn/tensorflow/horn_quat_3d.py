@@ -46,6 +46,8 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] is not None and P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -150,6 +152,8 @@ def horn_with_scale(
         )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] is not None and P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):

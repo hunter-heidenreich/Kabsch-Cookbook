@@ -26,6 +26,11 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    orig_dtype = P.dtype
+    if orig_dtype in (np.float16,):
+        P = P.astype(np.float32)
+        Q = Q.astype(np.float32)
+
     # Auto-batch single elements
     is_single = P.ndim == 2
     if is_single:
@@ -84,12 +89,16 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     )
 
     if is_single:
-        return R[0], t[0], rmsd[0]
-    return (
-        R.reshape(*batch_dims, D, D),
-        t.reshape(*batch_dims, D),
-        rmsd.reshape(*batch_dims),
-    )
+        R, t, rmsd = R[0], t[0], rmsd[0]
+    else:
+        R = R.reshape(*batch_dims, D, D)
+        t = t.reshape(*batch_dims, D)
+        rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (np.float16,):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+    return R, t, rmsd
 
 
 def kabsch_umeyama(
@@ -120,6 +129,11 @@ def kabsch_umeyama(
         )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+
+    orig_dtype = P.dtype
+    if orig_dtype in (np.float16,):
+        P = P.astype(np.float32)
+        Q = Q.astype(np.float32)
 
     is_single = P.ndim == 2
     if is_single:
@@ -185,10 +199,15 @@ def kabsch_umeyama(
     )
 
     if is_single:
-        return R[0], t[0], c[0], rmsd[0]
-    return (
-        R.reshape(*batch_dims, D, D),
-        t.reshape(*batch_dims, D),
-        c.reshape(*batch_dims),
-        rmsd.reshape(*batch_dims),
-    )
+        R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
+    else:
+        R = R.reshape(*batch_dims, D, D)
+        t = t.reshape(*batch_dims, D)
+        c = c.reshape(*batch_dims)
+        rmsd = rmsd.reshape(*batch_dims)
+    if orig_dtype in (np.float16,):
+        R = R.astype(orig_dtype)
+        t = t.astype(orig_dtype)
+        c = c.astype(orig_dtype)
+        rmsd = rmsd.astype(orig_dtype)
+    return R, t, c, rmsd
