@@ -109,7 +109,7 @@ def safe_svd(
     """
     Differentiable wrapper for SVD avoiding NaNs.
     Args:
-        A: (..., D, D) tensor (must be at least 3D)
+        A: (..., D, D) tensor (ndim >= 3)
     Returns:
         U, S, V  (V, NOT Vh)
     """

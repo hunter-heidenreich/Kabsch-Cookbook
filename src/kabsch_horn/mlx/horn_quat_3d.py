@@ -51,8 +51,8 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     avoid NaN gradients when point clouds are symmetric or degenerate.
 
     Args:
-        P: Source points, shape [..., N, 3].
-        Q: Target points, shape [..., N, 3].
+        P: Source points as mx.array, shape [..., N, 3].
+        Q: Target points as mx.array, shape [..., N, 3].
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -161,8 +161,8 @@ def horn_with_scale(
     Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh_fwd).
 
     Args:
-        P: Source points, shape [..., N, 3].
-        Q: Target points, shape [..., N, 3].
+        P: Source points as mx.array, shape [..., N, 3].
+        Q: Target points as mx.array, shape [..., N, 3].
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
