@@ -44,6 +44,7 @@ Homepage = "https://github.com/hunter-heidenreich/Kabsch-Cookbook"
 Repository = "https://github.com/hunter-heidenreich/Kabsch-Cookbook"
 Issues = "https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues"
 Changelog = "https://github.com/hunter-heidenreich/Kabsch-Cookbook/blob/main/CHANGELOG.md"
+Documentation = "https://hunter-heidenreich.github.io/Kabsch-Cookbook/"
 
 [dependency-groups]
 dev = [
@@ -60,6 +61,12 @@ dev = [
     "scipy>=1.15",
     "tensorflow>=2.20.0",
     "torch>=2.10.0",
+]
+
+docs = [
+    "mkdocs-material>=9.6",
+    "mkdocstrings[python]>=0.29",
+    "mkdocs-section-index>=0.3",
 ]
 
 [build-system]
