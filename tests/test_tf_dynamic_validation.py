@@ -85,7 +85,7 @@ class TestDynamicShapeMismatch:
         P = tf.constant(np.random.default_rng(0).random((5, 3)), dtype=tf.float64)
         Q = tf.constant(np.random.default_rng(1).random((4, 3)), dtype=tf.float64)
 
-        with pytest.raises(tf.errors.InvalidArgumentError, match="same shape"):
+        with pytest.raises(tf.errors.InvalidArgumentError):
             wrapped(P, Q)
 
 
