@@ -203,7 +203,8 @@ def horn_with_scale(
     R = _quat_to_rotation(q_opt)
 
     RH = np.sum(R * H.transpose(0, 2, 1), axis=(1, 2))
-    c = RH / np.clip(var_P, a_min=1e-12, a_max=None)
+    _eps = np.finfo(P.dtype).eps
+    c = RH / np.clip(var_P, a_min=_eps, a_max=None)
 
     t = np.squeeze(centroid_Q, axis=1) - c[:, np.newaxis] * np.squeeze(
         np.matmul(centroid_P, R.transpose(0, 2, 1)), axis=1

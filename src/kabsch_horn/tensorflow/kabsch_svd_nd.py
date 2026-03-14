@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 
@@ -32,7 +33,7 @@ def safe_svd(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
 
         # Safe denominator: replace near-zero differences with eps * sign
         # to prevent 1/0 = inf on off-diagonal entries where S_i ≈ S_j
-        eps = tf.cast(1e-12, S.dtype)
+        eps = tf.cast(np.finfo(S.dtype.as_numpy_dtype).eps, S.dtype)
         mask = tf.abs(S_sq_diff) < eps
         safe_D = tf.where(mask, tf.where(S_sq_diff >= 0, eps, -eps), S_sq_diff)
         safe_D = tf.linalg.set_diag(safe_D, tf.ones_like(tf.linalg.diag_part(safe_D)))
@@ -148,8 +149,9 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     # RMSD
     P_aligned = tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
-    rmsd = tf.sqrt(tf.maximum(mse, 1e-12))
+    rmsd = tf.sqrt(tf.maximum(mse, _eps))
 
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)
@@ -238,7 +240,8 @@ def kabsch_umeyama(
     S_corr = tf.linalg.diag_part(I_reflect)
 
     # Var_P is batched, S is batched. S * S_corr sum over last dim
-    c = tf.reduce_sum(S * S_corr, axis=-1) / tf.maximum(var_P, 1e-12)
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
+    c = tf.reduce_sum(S * S_corr, axis=-1) / tf.maximum(var_P, _eps)
 
     # Translation
     # t = mean_Q - c * R @ mean_P
@@ -252,7 +255,7 @@ def kabsch_umeyama(
     P_aligned = c_exp * tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
-    rmsd = tf.sqrt(tf.maximum(mse, 1e-12))
+    rmsd = tf.sqrt(tf.maximum(mse, _eps))
 
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)

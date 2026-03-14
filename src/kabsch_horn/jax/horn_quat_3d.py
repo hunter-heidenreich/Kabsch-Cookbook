@@ -3,21 +3,21 @@ import jax.numpy as jnp
 
 
 @jax.custom_vjp
-def safe_eigh(A: jnp.ndarray, eps: float = 1e-12) -> tuple[jnp.ndarray, jnp.ndarray]:
+def safe_eigh(A: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Gradient-safe eigendecomposition for symmetric matrices. Masks near-zero
     eigenvalue differences (< eps) in the backward pass to prevent NaN gradients."""
     return jnp.linalg.eigh(A)
 
 
 def _eigh_fwd(
-    A: jnp.ndarray, eps: float
+    A: jnp.ndarray,
 ) -> tuple[tuple[jnp.ndarray, jnp.ndarray], tuple]:
     L, V = jnp.linalg.eigh(A)
-    return (L, V), (L, V, eps)
+    return (L, V), (L, V)
 
 
 def _eigh_bwd(res: tuple, g: tuple) -> tuple:
-    L, V, eps = res
+    L, V = res
     grad_L, grad_V = g
 
     grad_L = (
@@ -36,6 +36,7 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
 
     D = L[..., jnp.newaxis, :] - L[..., jnp.newaxis]
 
+    eps = jnp.finfo(L.dtype).eps
     mask = jnp.abs(D) < eps
     safe_D = jnp.where(mask, jnp.where(D >= 0, eps, -eps), D)
     diag_mask = jnp.eye(D.shape[-1], dtype=bool)
@@ -49,7 +50,7 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
     term = L_diag + F * (Vt_dV - mH(Vt_dV)) / 2
     grad_A = jnp.matmul(V, jnp.matmul(term, mH(V)))
 
-    return (grad_A, None)
+    return (grad_A,)
 
 
 safe_eigh.defvjp(_eigh_fwd, _eigh_bwd)
@@ -166,10 +167,11 @@ def horn(
     )
 
     aligned = jnp.matmul(p, jnp.swapaxes(R, 1, 2))
+    _eps = jnp.finfo(P.dtype).eps
     rmsd = jnp.sqrt(
         jnp.clip(
             jnp.sum(jnp.square(aligned - q), axis=(1, 2)) / N_pts,
-            min=1e-12,
+            min=_eps,
             max=None,
         )
     )
@@ -238,8 +240,9 @@ def horn_with_scale(
 
     # H is unscaled (p.T @ q); var_P * N_pts = sum(sq(p)), so c = tr(R^T H) / sum(sq(p))
     var_P = jnp.sum(jnp.square(p), axis=(1, 2)) / N_pts
+    _eps = jnp.finfo(P.dtype).eps
     c = jnp.sum(R * jnp.swapaxes(H, 1, 2), axis=(1, 2)) / (
-        jnp.clip(var_P, min=1e-12) * N_pts
+        jnp.clip(var_P, min=_eps) * N_pts
     )
 
     t = jnp.squeeze(centroid_Q, axis=1) - c[:, jnp.newaxis] * jnp.squeeze(
@@ -252,7 +255,7 @@ def horn_with_scale(
     )
     diff = aligned_P - Q
     rmsd = jnp.sqrt(
-        jnp.clip(jnp.sum(jnp.square(diff), axis=(1, 2)) / N_pts, min=1e-12, max=None)
+        jnp.clip(jnp.sum(jnp.square(diff), axis=(1, 2)) / N_pts, min=_eps, max=None)
     )
 
     if is_single:

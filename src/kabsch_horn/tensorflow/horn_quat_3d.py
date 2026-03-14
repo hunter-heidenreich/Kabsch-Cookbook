@@ -1,14 +1,15 @@
+import numpy as np
 import tensorflow as tf
 
 
-def safe_eigh(A, eps=1e-12):
+def safe_eigh(A):
     return tf.linalg.eigh(A)
 
 
 @tf.custom_gradient
 def call_safe_eigh(A):
     L, V = safe_eigh(A)
-    eps = tf.cast(1e-12, L.dtype)
+    eps = tf.cast(np.finfo(L.dtype.as_numpy_dtype).eps, L.dtype)
 
     def grad(grad_L, grad_V):
         if grad_L is None:
@@ -125,10 +126,9 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 
     aligned = tf.matmul(p, R, transpose_b=True)
     N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
     rmsd = tf.sqrt(
-        tf.maximum(
-            tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f, 1e-12
-        )
+        tf.maximum(tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f, _eps)
     )
 
     if is_single:
@@ -228,8 +228,9 @@ def horn_with_scale(
         axis=-2,
     )
 
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
     RH = tf.reduce_sum(R * tf.linalg.matrix_transpose(H), axis=[-2, -1])
-    c = RH / tf.maximum(var_P, 1e-12)
+    c = RH / tf.maximum(var_P, _eps)
 
     t = tf.squeeze(centroid_Q, axis=-2) - tf.expand_dims(c, -1) * tf.squeeze(
         tf.matmul(centroid_P, R, transpose_b=True), axis=-2
@@ -240,7 +241,7 @@ def horn_with_scale(
     ) + tf.expand_dims(t, -2)
     diff = aligned_P - Q
     rmsd = tf.sqrt(
-        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f, 1e-12)
+        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f, _eps)
     )
 
     if is_single:

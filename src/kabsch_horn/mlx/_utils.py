@@ -2,6 +2,13 @@ import warnings
 
 import mlx.core as mx
 
+_DTYPE_EPS = {
+    mx.float16: 9.765625e-4,
+    mx.bfloat16: 7.8125e-3,
+    mx.float32: 1.1920929e-7,
+    mx.float64: 2.220446049250313e-16,
+}
+
 
 def _warn_if_float64(P: mx.array, Q: mx.array, stacklevel: int = 3) -> None:
     """Emit a UserWarning if either P or Q is float64.
