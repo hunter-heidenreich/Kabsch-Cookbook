@@ -65,11 +65,10 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
     d_sign = np.where(d == 0, 1.0, np.sign(d))
 
     # Optimal rotation
+    B_diag = np.ones((*d_sign.shape, D), dtype=P.dtype)
+    B_diag[..., -1] = d_sign
     R = np.matmul(
-        Vt.transpose(0, 2, 1)
-        * np.stack([np.ones_like(d_sign)] * (D - 1) + [d_sign], axis=-1)[
-            :, np.newaxis, :
-        ],
+        Vt.transpose(0, 2, 1) * B_diag[:, np.newaxis, :],
         U.transpose(0, 2, 1),
     )
 
@@ -176,7 +175,8 @@ def kabsch_umeyama(
     d_sign = np.where(d == 0, 1.0, np.sign(d))
 
     # S factor
-    S_corr = np.stack([np.ones_like(d_sign)] * (D - 1) + [d_sign], axis=-1)  # BxD
+    S_corr = np.ones((*d_sign.shape, D), dtype=P.dtype)
+    S_corr[..., -1] = d_sign
 
     # Scale
     _eps = np.finfo(P.dtype).eps

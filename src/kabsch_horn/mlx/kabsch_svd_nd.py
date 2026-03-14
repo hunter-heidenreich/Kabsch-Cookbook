@@ -273,10 +273,7 @@ def kabsch_umeyama(
 
     R = mx.matmul(I_reflect_V, U.swapaxes(-1, -2))
 
-    S_corr = mx.concatenate(
-        [mx.ones((*S.shape[:-1], D - 1), dtype=P.dtype), mx.expand_dims(d_sign, -1)],
-        axis=-1,
-    )
+    S_corr = diag
 
     _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
     c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, _eps)
