@@ -40,6 +40,9 @@ class SafeSVD(torch.autograd.Function):
     def backward(
         ctx, grad_U: torch.Tensor, grad_S: torch.Tensor, grad_V: torch.Tensor
     ) -> tuple[torch.Tensor]:
+        if not ctx.needs_input_grad[0]:
+            return (None,)
+
         U, S, Vh = ctx.saved_tensors
         eps = torch.finfo(S.dtype).eps
 
@@ -106,19 +109,11 @@ def safe_svd(
     """
     Differentiable wrapper for SVD avoiding NaNs.
     Args:
-        A: (..., D, D) tensor
+        A: (..., D, D) tensor (ndim >= 3)
     Returns:
         U, S, V  (V, NOT Vh)
     """
-    orig_shape = A.shape
-    if A.ndim == 2:
-        A = A.unsqueeze(0)
-
-    U, S, V = SafeSVD.apply(A)
-
-    if len(orig_shape) == 2:
-        return U.squeeze(0), S.squeeze(0), V.squeeze(0)
-    return U, S, V
+    return SafeSVD.apply(A)
 
 
 def kabsch(

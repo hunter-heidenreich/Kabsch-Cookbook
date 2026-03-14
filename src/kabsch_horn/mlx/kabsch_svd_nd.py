@@ -225,16 +225,14 @@ def kabsch_umeyama(
         P = P.astype(mx.float32)
         Q = Q.astype(mx.float32)
 
-    N = mx.array(P.shape[-2], dtype=P.dtype)
-
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
     centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / N
-    H = mx.matmul(p.swapaxes(-1, -2), q) / N
+    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+    H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
     U, S, Vt = safe_svd(H)
 

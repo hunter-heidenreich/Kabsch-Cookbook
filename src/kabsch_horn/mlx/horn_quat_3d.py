@@ -51,15 +51,13 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     avoid NaN gradients when point clouds are symmetric or degenerate.
 
     Args:
-        P: Source points, shape [..., N, 3].
-        Q: Target points, shape [..., N, 3].
+        P: Source points as mx.array, shape [..., N, 3].
+        Q: Target points as mx.array, shape [..., N, 3].
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
         float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
     """
-    P = mx.array(P)
-    Q = mx.array(Q)
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
@@ -163,16 +161,14 @@ def horn_with_scale(
     Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh_fwd).
 
     Args:
-        P: Source points, shape [..., N, 3].
-        Q: Target points, shape [..., N, 3].
+        P: Source points as mx.array, shape [..., N, 3].
+        Q: Target points as mx.array, shape [..., N, 3].
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
         scale [...], RMSD [...].
         float16/bfloat16 inputs are upcast to float32 and downcast on output.
     """
-    P = mx.array(P)
-    Q = mx.array(Q)
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
@@ -186,7 +182,6 @@ def horn_with_scale(
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
         Q = Q.astype(mx.float32)
-    N_pts_f = mx.array(P.shape[-2], dtype=P.dtype)
 
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
     centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
@@ -194,9 +189,9 @@ def horn_with_scale(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / N_pts_f
+    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
 
-    H = mx.matmul(p.swapaxes(-1, -2), q) / N_pts_f
+    H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
     S = H + H.swapaxes(-1, -2)
     tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
