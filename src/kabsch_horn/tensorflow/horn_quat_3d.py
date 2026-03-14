@@ -2,12 +2,15 @@ import numpy as np
 import tensorflow as tf
 
 
-def safe_eigh(A):
+def safe_eigh(A: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+    """Eigendecomposition of a symmetric matrix. Used by call_safe_eigh."""
     return tf.linalg.eigh(A)
 
 
 @tf.custom_gradient
-def call_safe_eigh(A):
+def call_safe_eigh(A: tf.Tensor) -> tuple[tuple[tf.Tensor, tf.Tensor], ...]:
+    """Gradient-safe eigendecomposition for symmetric matrices. Masks near-zero
+    eigenvalue differences (< eps) in the backward pass to prevent NaN gradients."""
     L, V = safe_eigh(A)
     eps = tf.cast(np.finfo(L.dtype.as_numpy_dtype).eps, L.dtype)
 
@@ -38,6 +41,21 @@ def call_safe_eigh(A):
 
 
 def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+    """
+    Computes optimal rotation and translation to align P to Q using Horn's
+    quaternion method.
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (call_safe_eigh) to
+    avoid NaN gradients when point clouds are symmetric or degenerate.
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+    """
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
 
@@ -151,6 +169,21 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 def horn_with_scale(
     P: tf.Tensor, Q: tf.Tensor
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
+    """
+    Computes optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (call_safe_eigh).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 and downcast on output.
+    """
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
 

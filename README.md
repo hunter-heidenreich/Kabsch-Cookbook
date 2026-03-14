@@ -75,6 +75,32 @@ loss.mean().backward()
 
 NumPy provides forward-pass evaluation only. MLX uses a hardcoded 3x3 determinant correction and raises `ValueError` for non-3D inputs. JAX float64 requires `JAX_ENABLE_X64=True` to be set before importing JAX, otherwise inputs are silently downcast to float32.
 
+## Compiler and JIT Support
+
+All functions are compatible with `torch.compile` and `jax.jit`. Wrapping is optional -- functions work correctly without it -- but can improve throughput for repeated calls.
+
+**PyTorch** (`torch.compile`):
+
+```python
+import torch
+from kabsch_horn import pytorch as kh
+
+compiled_kabsch = torch.compile(kh.kabsch)
+R, t, rmsd = compiled_kabsch(P, Q)
+```
+
+**JAX** (`jax.jit`):
+
+```python
+import jax
+from kabsch_horn import jax as kh
+
+jitted_kabsch = jax.jit(kh.kabsch)
+R, t, rmsd = jitted_kabsch(P, Q)
+```
+
+JAX float64 requires `JAX_ENABLE_X64=True` to be set before importing JAX, otherwise inputs are silently downcast to float32. This applies whether or not you use `jit`.
+
 ## Two Paths to Alignment
 
 ### Kabsch Algorithm (N-Dimensional SVD)
@@ -132,7 +158,7 @@ When the cross-covariance $H = (P - \bar{P})^\top (Q - \bar{Q})$ is well-conditi
 
 ### Gradient stability
 
-SafeSVD and SafeEigh override the standard backward pass to mask near-zero singular value and eigenvalue differences with `eps=1e-12`. The table below lists the degenerate cases explicitly tested.
+SafeSVD and SafeEigh override the standard backward pass to mask near-zero singular value and eigenvalue differences with `finfo(dtype).eps`. The table below lists the degenerate cases explicitly tested.
 
 | Degenerate input | Guarantee | Test |
 |-----------------|-----------|------|
@@ -190,7 +216,7 @@ The rotation matrix `R` returned by `kabsch` and `horn` is differentiable, so it
 
 To port these algorithms to a new backend, implement the following interface:
 
-1. **`safe_svd(A)`** -- A custom-gradient SVD that masks near-zero singular value differences in the backward pass with `eps=1e-12`. See `src/kabsch_horn/pytorch/kabsch_svd_nd.py` (`SafeSVD`) for the reference implementation.
+1. **`safe_svd(A)`** -- A custom-gradient SVD that masks near-zero singular value differences in the backward pass with `finfo(dtype).eps`. See `src/kabsch_horn/pytorch/kabsch_svd_nd.py` (`SafeSVD`) for the reference implementation.
 2. **`safe_eigh(A)`** -- Same pattern for eigendecomposition, used by Horn's method. See `SafeEigh` in `src/kabsch_horn/pytorch/horn_quat_3d.py`.
 3. **`kabsch(P, Q)`** -- Accepts `[N, D]` or `[..., N, D]` inputs and returns `(R, t, rmsd)`.
 4. **`horn(P, Q)`** -- Accepts `[N, 3]` or `[..., N, 3]` inputs and returns `(R, t, rmsd)`.

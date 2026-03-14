@@ -182,6 +182,10 @@ def kabsch_umeyama(
         RMSD [...].
 
     Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
         R is only stable under global translation and uniform scaling when the
         cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
         smallest singular value of H is near zero, U and V from the SVD are not
@@ -218,7 +222,7 @@ def kabsch_umeyama(
         tf.shape(P)[-2], P.dtype
     )
 
-    # Covariance
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
     N = tf.cast(tf.shape(P)[-2], P.dtype)
     H = tf.matmul(p, q, transpose_a=True) / N
 
