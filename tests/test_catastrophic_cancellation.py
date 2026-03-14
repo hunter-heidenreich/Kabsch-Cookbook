@@ -1,10 +1,11 @@
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
+from conftest import ALGORITHMS, ALGORITHMS_WITH_SCALE
 
 
 class TestCatastrophicCancellation:
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_extreme_translation_preserves_rotation_and_translation(
         self,
@@ -38,7 +39,7 @@ class TestCatastrophicCancellation:
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
         R_res = adapter.convert_out(res[0])
@@ -52,11 +53,11 @@ class TestCatastrophicCancellation:
         # relative concept. So we adjust the translation tolerance for the test
         assert t_res == pytest.approx(large_t, rel=adapter.rtol)
 
-        if algo == "umeyama":
+        if algo in ALGORITHMS_WITH_SCALE:
             c_res = float(adapter.convert_out(res[2]))
             assert c_res == pytest.approx(1.0, rel=adapter.rtol)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_extreme_translation_of_both_point_clouds(
         self,
@@ -90,7 +91,7 @@ class TestCatastrophicCancellation:
 
         P = adapter.convert_in(P_shifted)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
         R_res = adapter.convert_out(res[0])
@@ -101,6 +102,6 @@ class TestCatastrophicCancellation:
         assert R_res == pytest.approx(R_true, abs=adapter.atol)
         assert t_res == pytest.approx(t_true, rel=adapter.rtol)
 
-        if algo == "umeyama":
+        if algo in ALGORITHMS_WITH_SCALE:
             c_res = float(adapter.convert_out(res[2]))
             assert c_res == pytest.approx(1.0, rel=adapter.rtol)

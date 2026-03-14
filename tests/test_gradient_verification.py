@@ -9,6 +9,7 @@ from adapters import (
     FrameworkAdapter,
     frameworks,
 )
+from conftest import ALGORITHMS
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from strategies import nearly_collinear_3d, nearly_coplanar_nd, point_clouds_3d
@@ -17,12 +18,11 @@ from utils import compute_numeric_grad
 _FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
 _MAX_EXAMPLES_FD = 10 if _FAST else 50
 _MAX_EXAMPLES_DEGEN = 5 if _FAST else 20
-_MAX_EXAMPLES_HORN_FD = 10 if _FAST else 50
 
 
 class TestGradientVerification:
     @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_match_sequential_computation_when_batched(
         self,
@@ -58,7 +58,7 @@ class TestGradientVerification:
         )
 
     @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_gradients_match_sequential_computation_when_nd_batched(
         self,
@@ -95,7 +95,7 @@ class TestGradientVerification:
         )
 
     @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize(
         "dim",
@@ -134,7 +134,7 @@ class TestGradientVerification:
         )
 
     @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize(
         "dim",
@@ -174,7 +174,7 @@ class TestGradientVerification:
         )
 
     @pytest.mark.parametrize("adapter", frameworks)
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @settings(
         max_examples=_MAX_EXAMPLES_FD,
@@ -221,7 +221,7 @@ class TestGradientVerification:
         )
 
     @pytest.mark.parametrize("precision", ["float32", "float64"])
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     def test_computes_double_backward_when_using_pytorch(
         self,
         algo: str,
@@ -229,8 +229,8 @@ class TestGradientVerification:
     ) -> None:
         """
         Validates PyTorch implementation supports double backward (meta-learning).
-        SVD double-backward frequently breaks due to mathematical singularities or
-        framework limitations.
+        SVD/eigh double-backward frequently breaks due to mathematical
+        singularities or framework limitations.
         """
         import torch
         from adapters import PyTorchAdapter
@@ -252,7 +252,7 @@ class TestGradientVerification:
         assert P.grad is not None
         assert torch.isfinite(P.grad).all()
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @settings(
         max_examples=_MAX_EXAMPLES_DEGEN,
@@ -260,22 +260,19 @@ class TestGradientVerification:
         deadline=None,
     )
     @given(st.one_of(nearly_collinear_3d(), nearly_coplanar_nd(dim=3)))
-    def test_safe_svd_gradient_reduces_rmsd_at_hypothesis_near_degenerate(
+    def test_safe_gradient_reduces_rmsd_at_hypothesis_near_degenerate(
         self,
         adapter: FrameworkAdapter,
         algo: str,
         P_np: np.ndarray,
     ) -> None:
-        """SafeSVD masked gradients at near-degenerate inputs must not increase RMSD.
+        """Safe masked gradients at near-degenerate inputs must not increase RMSD.
 
         Finite differences are numerically unreliable near singularities (see
         test_gradients_match_finite_differences_hypothesis for the stable-region FD
-        check). This test verifies that SafeSVD's masked gradient at collinear or
-        coplanar inputs is a valid descent direction -- a weaker but meaningful
-        condition that can be checked without FD.
-
-        This is the canonical "source of truth" test showing SafeSVD descent is
-        guaranteed even at near-degenerate inputs (Fix #91).
+        check). This test verifies that masked gradients at collinear or coplanar
+        inputs are valid descent directions -- a weaker but meaningful condition
+        that can be checked without FD.
         """
         if adapter.precision in ("float16", "bfloat16"):
             pytest.skip("overflow risk at near-degenerate inputs for float16/bfloat16")
@@ -301,7 +298,7 @@ class TestGradientVerification:
             return
 
         # Take one gradient step and verify RMSD does not increase.
-        # Relative bound accommodates SafeSVD imprecision at degeneracy while
+        # Relative bound accommodates imprecision at degeneracy while
         # still catching genuinely bad (non-descent) gradients.
         alpha = 0.01
         P_step_np = P_np - alpha * grad
@@ -313,175 +310,6 @@ class TestGradientVerification:
         assert rmsd_step <= rmsd_orig * 1.5 + 1e-4, (
             f"RMSD increased after gradient step: {rmsd_orig:.6f} -> {rmsd_step:.6f}"
         )
-
-
-class TestHornGradientVerification:
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("adapter", frameworks)
-    def test_gradients_match_sequential_when_batched(
-        self,
-        horn_batch_points: tuple[np.ndarray, np.ndarray],
-        adapter: FrameworkAdapter,
-        algo: str,
-        wrt: str,
-    ) -> None:
-        """Verifies batched Horn gradients match sequential computation."""
-        P_np, Q_np = horn_batch_points
-        P_batch = adapter.convert_in(P_np)
-        Q_batch = adapter.convert_in(Q_np)
-
-        func = adapter.get_transform_func(algo)
-
-        grad_batch = adapter.get_grad(P_batch, Q_batch, func, seed=None, wrt=wrt)
-
-        grads_seq = []
-        for i in range(P_np.shape[0]):
-            P_seq = adapter.convert_in(P_np[i])
-            Q_seq = adapter.convert_in(Q_np[i])
-            g = adapter.get_grad(P_seq, Q_seq, func, seed=None, wrt=wrt)
-            grads_seq.append(g)
-
-        grad_seq_stacked = np.stack(grads_seq)
-
-        assert grad_batch == pytest.approx(
-            grad_seq_stacked, rel=adapter.rtol, abs=adapter.atol
-        )
-
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("adapter", frameworks)
-    def test_gradients_match_finite_differences(
-        self,
-        adapter: FrameworkAdapter,
-        algo: str,
-        wrt: str,
-    ) -> None:
-        """Compares Horn analytic gradients against finite differences (3D only)."""
-        np.random.seed(42)
-        P_np = np.random.rand(10, 3).astype(np.float64)
-        Q_np = (P_np + np.random.rand(10, 3) * 0.1).astype(np.float64)
-
-        P_fw = adapter.convert_in(P_np)
-        Q_fw = adapter.convert_in(Q_np)
-
-        func = adapter.get_transform_func(algo)
-        ref_adapter = type(adapter)("float64")
-        func_ref = ref_adapter.get_transform_func(algo)
-
-        grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
-        grad_numeric = compute_numeric_grad(
-            P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
-        )
-
-        assert grad_analytic == pytest.approx(
-            grad_numeric, rel=adapter.rtol, abs=adapter.atol
-        )
-
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("adapter", frameworks)
-    def test_gradients_purely_random(
-        self,
-        adapter: FrameworkAdapter,
-        algo: str,
-        wrt: str,
-    ) -> None:
-        """Finite-difference check for Horn with uncorrelated random point clouds."""
-        np.random.seed(123)
-        P_np = np.random.rand(10, 3).astype(np.float64)
-        Q_np = np.random.rand(10, 3).astype(np.float64)
-
-        P_fw = adapter.convert_in(P_np)
-        Q_fw = adapter.convert_in(Q_np)
-
-        func = adapter.get_transform_func(algo)
-        ref_adapter = type(adapter)("float64")
-        func_ref = ref_adapter.get_transform_func(algo)
-
-        grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
-        grad_numeric = compute_numeric_grad(
-            P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
-        )
-
-        assert grad_analytic == pytest.approx(
-            grad_numeric, rel=adapter.rtol, abs=adapter.atol
-        )
-
-    @pytest.mark.parametrize("adapter", frameworks)
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    @pytest.mark.parametrize("wrt", ["P", "Q"])
-    @settings(
-        max_examples=_MAX_EXAMPLES_HORN_FD,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-        deadline=None,
-    )
-    @given(point_clouds_3d(), st.integers(0, 2**31 - 1))
-    def test_gradients_match_finite_differences_hypothesis(
-        self,
-        adapter: FrameworkAdapter,
-        algo: str,
-        wrt: str,
-        P_np: np.ndarray,
-        seed: int,
-    ) -> None:
-        """Compares Horn analytic vs finite-difference gradients (Hypothesis-varied)."""
-        if adapter.precision in ("float16", "bfloat16", "float32"):
-            pytest.skip(
-                "FD gradient check is vacuous for float16/bfloat16 (atol*50=5.0) "
-                "and imprecise for float32 (atol*50=2.5). float64 adapters cover "
-                "gradient correctness; deterministic FD tests cover float32 via "
-                "float64 reference."
-            )
-        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
-        assume(sv[-1] > 1e-1)
-        rng = np.random.default_rng(seed)
-        Q_np = (P_np + rng.standard_normal(P_np.shape)).astype(np.float64)
-
-        P_fw = adapter.convert_in(P_np)
-        Q_fw = adapter.convert_in(Q_np)
-        func = adapter.get_transform_func(algo)
-        ref_adapter = type(adapter)("float64")
-        func_ref = ref_adapter.get_transform_func(algo)
-
-        grad_analytic = adapter.get_grad(P_fw, Q_fw, func, wrt=wrt)
-        grad_numeric = compute_numeric_grad(
-            P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
-        )
-
-        # 50x multiplier accounts for finite-difference truncation error and
-        # floating-point cancellation in near-singular configurations.
-        np.testing.assert_allclose(
-            grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
-        )
-
-    @pytest.mark.parametrize("precision", ["float32", "float64"])
-    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
-    def test_double_backward_pytorch(
-        self,
-        algo: str,
-        precision: str,
-    ) -> None:
-        """PyTorch-only: validates Horn supports double backward (create_graph=True)."""
-        import torch
-        from adapters import PyTorchAdapter
-
-        adapter = PyTorchAdapter(precision=precision)
-        dtype = adapter._DTYPE_MAP[precision]
-        P = torch.rand((5, 3), dtype=dtype, requires_grad=True)
-        Q = torch.rand((5, 3), dtype=dtype, requires_grad=True)
-        func = adapter.get_transform_func(algo)
-
-        res = func(P, Q)
-        loss = sum([r.sum() for r in res])
-
-        grad_P = torch.autograd.grad(loss, P, create_graph=True)[0]
-
-        loss2 = grad_P.sum()
-        loss2.backward()
-
-        assert P.grad is not None
-        assert torch.isfinite(P.grad).all()
 
 
 _JAX_SVD_XFAIL = pytest.mark.xfail(
@@ -500,9 +328,8 @@ _PRECISIONS = ["float32", "float64"]
 class TestDoubleBackwardNonPyTorch:
     """Double backward coverage for JAX, TensorFlow, and MLX.
 
-    PyTorch double backward is tested in TestGradientVerification and
-    TestHornGradientVerification. This class extends that coverage to the
-    remaining autodiff frameworks.
+    PyTorch double backward is tested in TestGradientVerification. This class
+    extends that coverage to the remaining autodiff frameworks.
 
     JAX kabsch/kabsch_umeyama are marked xfail(strict=True): JAX's custom_vjp
     does not implement an SVD JVP, so double backward raises NotImplementedError

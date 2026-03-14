@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
+from conftest import ALGORITHMS, ALGORITHMS_3D_ONLY, ALGORITHMS_WITH_SCALE
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
@@ -31,57 +32,39 @@ _NUMPY_SETTINGS = settings(
 
 
 class TestRotationInvariants:
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(aligned_pair_nd())
-    def test_rotation_is_orthogonal_kabsch(
-        self, adapter: FrameworkAdapter, aligned: tuple
+    def test_rotation_is_orthogonal(
+        self, algo: str, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
         P_np, _R_true, _t_true, Q_np, dim = aligned
         assume(adapter.supports_dim(dim))
+        if algo in ALGORITHMS_3D_ONLY:
+            assume(dim == 3)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        res = adapter.kabsch(P, Q)
+        func = adapter.get_transform_func(algo)
+        res = func(P, Q)
         R = adapter.convert_out(res[0])
         np.testing.assert_allclose(R @ R.T, np.eye(dim), atol=adapter.atol * 10)
 
-    @pytest.mark.parametrize("adapter", frameworks)
-    @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_3d())
-    def test_rotation_is_orthogonal_horn(
-        self, adapter: FrameworkAdapter, aligned: tuple
-    ) -> None:
-        P_np, _R_true, _t_true, Q_np = aligned
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        res = adapter.horn(P, Q)
-        R = adapter.convert_out(res[0])
-        np.testing.assert_allclose(R @ R.T, np.eye(3), atol=adapter.atol * 10)
-
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(aligned_pair_nd())
-    def test_rotation_det_is_positive_kabsch(
-        self, adapter: FrameworkAdapter, aligned: tuple
+    def test_rotation_det_is_positive(
+        self, algo: str, adapter: FrameworkAdapter, aligned: tuple
     ) -> None:
         P_np, _R_true, _t_true, Q_np, dim = aligned
         assume(adapter.supports_dim(dim))
+        if algo in ALGORITHMS_3D_ONLY:
+            assume(dim == 3)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        res = adapter.kabsch(P, Q)
-        R = adapter.convert_out(res[0])
-        assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol * 10)
-
-    @pytest.mark.parametrize("adapter", frameworks)
-    @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_3d())
-    def test_rotation_det_is_positive_horn(
-        self, adapter: FrameworkAdapter, aligned: tuple
-    ) -> None:
-        P_np, _R_true, _t_true, Q_np = aligned
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        res = adapter.horn(P, Q)
+        func = adapter.get_transform_func(algo)
+        res = func(P, Q)
         R = adapter.convert_out(res[0])
         assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol * 10)
 
@@ -109,31 +92,22 @@ class TestRotationInvariants:
         rmsd = float(adapter.convert_out(res[-1]))
         assert rmsd >= -adapter.atol * 10
 
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_WITH_SCALE))
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
     @given(point_clouds_nd())
-    def test_scale_is_positive_umeyama(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
+    def test_scale_is_positive(
+        self, algo: str, adapter: FrameworkAdapter, P_np: np.ndarray
     ) -> None:
         dim = P_np.shape[-1]
         assume(adapter.supports_dim(dim))
+        if algo in ALGORITHMS_3D_ONLY:
+            assume(dim == 3)
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        res = adapter.kabsch_umeyama(P, Q)
-        c = float(adapter.convert_out(res[2]))
-        assert c >= 0
-
-    @pytest.mark.parametrize("adapter", frameworks)
-    @_FRAMEWORK_SETTINGS
-    @given(point_clouds_3d())
-    def test_scale_is_positive_horn_with_scale(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
-    ) -> None:
-        Q_np = P_np + np.random.default_rng(0).random((1, 3)) * 0.5
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        res = adapter.horn_with_scale(P, Q)
+        func = adapter.get_transform_func(algo)
+        res = func(P, Q)
         c = float(adapter.convert_out(res[2]))
         assert c >= 0
 
@@ -414,6 +388,23 @@ class TestAlignmentInvariants:
         np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
         np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
 
+    @_NUMPY_SETTINGS
+    @given(
+        aligned_pair_3d(),
+        st.floats(0.5, 3.0, allow_nan=False, allow_infinity=False),
+    )
+    def test_horn_with_scale_recovers_exact_scale(
+        self, aligned: tuple, c_true: float
+    ) -> None:
+        """horn_with_scale recovers the known scale factor exactly."""
+        P_np, R_true, t_true, _ = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        Q_np = c_true * (P_np @ R_true.T) + t_true
+        _, _, c, rmsd = kabsch_np.horn_with_scale(P_np, Q_np)
+        np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
+        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
+
     @_NUMPY_FILTER_SETTINGS
     @given(nearly_collinear_3d())
     def test_rotation_is_not_unique_when_cross_covariance_is_degenerate(
@@ -448,20 +439,3 @@ class TestAlignmentInvariants:
         assert np.isfinite(R2).all()
         assert np.isfinite(t2).all()
         assert np.isfinite(float(rmsd2))
-
-    @_NUMPY_SETTINGS
-    @given(
-        aligned_pair_3d(),
-        st.floats(0.5, 3.0, allow_nan=False, allow_infinity=False),
-    )
-    def test_horn_with_scale_recovers_exact_scale(
-        self, aligned: tuple, c_true: float
-    ) -> None:
-        """horn_with_scale recovers the known scale factor exactly."""
-        P_np, R_true, t_true, _ = aligned
-        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
-        assume(sv[-1] > 1e-3)
-        Q_np = c_true * (P_np @ R_true.T) + t_true
-        _, _, c, rmsd = kabsch_np.horn_with_scale(P_np, Q_np)
-        np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
-        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
