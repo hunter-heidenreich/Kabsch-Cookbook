@@ -1,8 +1,13 @@
+import os
+
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
 from hypothesis import HealthCheck, assume, given, settings
 from strategies import extreme_scale_cloud, nearly_collinear_3d, nearly_coplanar_nd
+
+_FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
+_MAX_EXAMPLES = 8 if _FAST else 30
 
 
 class TestDifferentiabilityTraps:
@@ -300,7 +305,7 @@ class TestDifferentiabilityTraps:
             )
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )
@@ -337,7 +342,7 @@ class TestDifferentiabilityTraps:
             )
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )
@@ -376,7 +381,7 @@ class TestDifferentiabilityTraps:
             )
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )
@@ -408,7 +413,7 @@ class TestDifferentiabilityTraps:
             pytest.skip("extreme scale unsafe for float16/bfloat16")
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )
@@ -598,7 +603,7 @@ class TestHornDifferentiabilityTraps:
             )
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )
@@ -637,7 +642,7 @@ class TestHornDifferentiabilityTraps:
             )
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )
@@ -670,7 +675,7 @@ class TestHornDifferentiabilityTraps:
             pytest.skip("extreme scale unsafe for float16/bfloat16")
 
         @settings(
-            max_examples=30,
+            max_examples=_MAX_EXAMPLES,
             suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
             deadline=None,
         )

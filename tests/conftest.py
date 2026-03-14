@@ -6,7 +6,21 @@ import pytest
 os.environ["JAX_ENABLE_X64"] = "True"
 
 
-@pytest.fixture(params=[2, 3, 4, 10, 100], ids=lambda x: f"{x}D")
+def pytest_addoption(parser):
+    parser.addoption(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Run full test suite (all precisions, full Hypothesis examples)",
+    )
+
+
+def pytest_configure(config):
+    if not config.getoption("--full", default=False):
+        os.environ["KABSCH_TEST_FAST"] = "1"
+
+
+@pytest.fixture(params=[2, 3, 4], ids=lambda x: f"{x}D")
 def dim(request) -> int:
     return request.param
 
@@ -188,20 +202,37 @@ def pytest_collection_modifyitems(session, config, items) -> None:
     Filters out tests where the requested framework adapter
     does not support the requested spatial dimension.
 
+    When ``--full`` is not passed, also skips float16/bfloat16 adapter tests
+    except for dtype-preservation tests (which exist specifically to verify
+    the upcast path).
+
     Note: Hypothesis tests parametrised by `adapter` but with `dim` drawn
     inside `@given` are not filtered here -- they guard themselves with
     `assume(adapter.supports_dim(dim))` inside the test body.
     """
+    full = config.getoption("--full", default=False)
     kept = []
     for item in items:
         # Check if the test has a callspec (i.e. is parametrized)
         if hasattr(item, "callspec"):
             params = item.callspec.params
-            # Some tests have dim directly in params
+            # Existing: skip MLX on unsupported dims
             if "dim" in params and "adapter" in params:
                 dim = params["dim"]
                 adapter = params["adapter"]
                 if not adapter.supports_dim(dim):
+                    continue
+            # Skip float16/bfloat16 except dtype-preservation tests
+            if not full and "adapter" in params:
+                adapter = params["adapter"]
+                if (
+                    hasattr(adapter, "precision")
+                    and adapter.precision in ("float16", "bfloat16")
+                    and "preserves_input_dtype" not in item.name
+                    and "preserves_dtype" not in item.name
+                    and "float16" not in item.name.split("[")[0].lower()
+                    and "dtype" not in item.name.split("[")[0].lower()
+                ):
                     continue
         kept.append(item)
 

@@ -79,6 +79,9 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=src/kabsch_horn --cov-report=xml:coverage.xml"
+markers = [
+    "slow: marks tests as slow (deselect with '-m not slow')",
+]
 
 [tool.ruff]
 target-version = "py310"

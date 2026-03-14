@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 from adapters import (
@@ -11,6 +13,11 @@ from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from strategies import nearly_collinear_3d, nearly_coplanar_nd, point_clouds_3d
 from utils import compute_numeric_grad
+
+_FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
+_MAX_EXAMPLES_FD = 10 if _FAST else 50
+_MAX_EXAMPLES_DEGEN = 5 if _FAST else 20
+_MAX_EXAMPLES_HORN_FD = 10 if _FAST else 50
 
 
 class TestGradientVerification:
@@ -170,7 +177,7 @@ class TestGradientVerification:
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @settings(
-        max_examples=50,
+        max_examples=_MAX_EXAMPLES_FD,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
@@ -248,7 +255,7 @@ class TestGradientVerification:
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
     @pytest.mark.parametrize("adapter", frameworks)
     @settings(
-        max_examples=20,
+        max_examples=_MAX_EXAMPLES_DEGEN,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )
@@ -405,7 +412,7 @@ class TestHornGradientVerification:
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @settings(
-        max_examples=50,
+        max_examples=_MAX_EXAMPLES_HORN_FD,
         suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
         deadline=None,
     )

@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
@@ -14,13 +16,15 @@ from strategies import (
 
 from kabsch_horn import numpy as kabsch_np
 
+_FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
+
 _FRAMEWORK_SETTINGS = settings(
-    max_examples=50,
+    max_examples=10 if _FAST else 50,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
 _NUMPY_SETTINGS = settings(
-    max_examples=100,
+    max_examples=20 if _FAST else 100,
     suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
@@ -293,12 +297,12 @@ class TestKabschRecoveryND:
 
 
 _PAIR_SETTINGS = settings(
-    max_examples=100,
+    max_examples=20 if _FAST else 100,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
 _NUMPY_FILTER_SETTINGS = settings(
-    max_examples=100,
+    max_examples=20 if _FAST else 100,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
