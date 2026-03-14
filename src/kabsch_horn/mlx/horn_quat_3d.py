@@ -144,7 +144,7 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     diff = aligned - q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
     _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
-    rmsd = mx.sqrt(mx.maximum(mse, _eps))
+    rmsd = mx.sqrt(mse + _eps)
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)
@@ -264,7 +264,7 @@ def horn_with_scale(
     ) + mx.expand_dims(t, -2)
     diff = aligned_P - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, _eps))
+    rmsd = mx.sqrt(mse + _eps)
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)

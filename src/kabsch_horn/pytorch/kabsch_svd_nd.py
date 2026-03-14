@@ -193,14 +193,11 @@ def kabsch(
     # 3. Optimal Rotation: R = V * B_diag * U^T
     R = torch.matmul(V * B_diag.unsqueeze(1), U.transpose(1, 2))  # Bx3x3
 
-    # RMSD (Adding eps for sqrt derivative safety near 0)
+    # RMSD (mse + eps for smooth sqrt gradient near zero)
     aligned = torch.matmul(p, R.transpose(1, 2))
     _eps = torch.finfo(P.dtype).eps
-    rmsd = torch.sqrt(
-        torch.clamp(
-            torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1], min=_eps
-        )
-    )
+    mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1]
+    rmsd = torch.sqrt(mse + _eps)
 
     # Fast Translation
     t = centroid_Q.squeeze(1) - torch.squeeze(
@@ -313,9 +310,8 @@ def kabsch_umeyama(
     aligned_P = c.unsqueeze(-1).unsqueeze(-1) * torch.matmul(
         P, R.transpose(1, 2)
     ) + t.unsqueeze(1)
-    rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N, min=_eps)
-    )
+    mse = torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N
+    rmsd = torch.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
