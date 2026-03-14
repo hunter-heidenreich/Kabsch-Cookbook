@@ -1,14 +1,18 @@
+import numpy as np
 import tensorflow as tf
 
 
-def safe_eigh(A, eps=1e-12):
+def safe_eigh(A: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
+    """Eigendecomposition of a symmetric matrix. Used by call_safe_eigh."""
     return tf.linalg.eigh(A)
 
 
 @tf.custom_gradient
-def call_safe_eigh(A):
+def call_safe_eigh(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
+    """Gradient-safe eigendecomposition for symmetric matrices. Masks near-zero
+    eigenvalue differences (< eps) in the backward pass to prevent NaN gradients."""
     L, V = safe_eigh(A)
-    eps = tf.cast(1e-12, L.dtype)
+    eps = tf.cast(np.finfo(L.dtype.as_numpy_dtype).eps, L.dtype)
 
     def grad(grad_L, grad_V):
         if grad_L is None:
@@ -19,7 +23,7 @@ def call_safe_eigh(A):
         D = tf.expand_dims(L, -2) - tf.expand_dims(L, -1)
 
         mask = tf.abs(D) < eps
-        safe_D = tf.where(mask, eps * tf.sign(D + eps), D)
+        safe_D = tf.where(mask, tf.where(D >= 0, eps, -eps), D)
         safe_D = tf.linalg.set_diag(safe_D, tf.ones_like(tf.linalg.diag_part(safe_D)))
 
         F = 1.0 / safe_D
@@ -37,16 +41,48 @@ def call_safe_eigh(A):
 
 
 def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
-    # Assume 3D
+    """
+    Computes optimal rotation and translation to align P to Q using Horn's
+    quaternion method.
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (call_safe_eigh) to
+    avoid NaN gradients when point clouds are symmetric or degenerate.
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+    """
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
+
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    tf.debugging.assert_equal(
+        tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
+    if P.shape[-1] is not None and P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    tf.debugging.assert_equal(
+        tf.shape(P)[-1], 3, message="Horn's method is strictly for 3D point clouds"
+    )
+    if P.shape[-2] is not None and P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+    tf.debugging.assert_greater_equal(
+        tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
+    )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
-    is_single = tf.rank(P) == 2
+    is_single = len(P.shape) == 2
     if is_single:
         P = tf.expand_dims(P, 0)
         Q = tf.expand_dims(Q, 0)
@@ -117,11 +153,9 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 
     aligned = tf.matmul(p, R, transpose_b=True)
     N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
-    rmsd = tf.sqrt(
-        tf.maximum(
-            tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f, 1e-12
-        )
-    )
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
+    mse = tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f
+    rmsd = tf.sqrt(mse + _eps)
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -135,15 +169,48 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 def horn_with_scale(
     P: tf.Tensor, Q: tf.Tensor
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
+    """
+    Computes optimal rotation, translation, and scale to align P to Q
+    (Q ~ c * R @ P + t).
+
+    Strictly 3D only. Uses gradient-safe eigendecomposition (call_safe_eigh).
+
+    Args:
+        P: Source points, shape [..., N, 3].
+        Q: Target points, shape [..., N, 3].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
+        scale [...], RMSD [...].
+        float16/bfloat16 inputs are upcast to float32 and downcast on output.
+    """
     P = tf.convert_to_tensor(P)
     Q = tf.convert_to_tensor(Q)
+
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    tf.debugging.assert_equal(
+        tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
+    if P.shape[-1] is not None and P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    tf.debugging.assert_equal(
+        tf.shape(P)[-1], 3, message="Horn's method is strictly for 3D point clouds"
+    )
+    if P.shape[-2] is not None and P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+    tf.debugging.assert_greater_equal(
+        tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
+    )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
-    is_single = tf.rank(P) == 2
+    is_single = len(P.shape) == 2
     if is_single:
         P = tf.expand_dims(P, 0)
         Q = tf.expand_dims(Q, 0)
@@ -211,8 +278,9 @@ def horn_with_scale(
         axis=-2,
     )
 
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
     RH = tf.reduce_sum(R * tf.linalg.matrix_transpose(H), axis=[-2, -1])
-    c = RH / tf.maximum(var_P, 1e-12)
+    c = RH / tf.maximum(var_P, _eps)
 
     t = tf.squeeze(centroid_Q, axis=-2) - tf.expand_dims(c, -1) * tf.squeeze(
         tf.matmul(centroid_P, R, transpose_b=True), axis=-2
@@ -222,9 +290,8 @@ def horn_with_scale(
         P, R, transpose_b=True
     ) + tf.expand_dims(t, -2)
     diff = aligned_P - Q
-    rmsd = tf.sqrt(
-        tf.maximum(tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f, 1e-12)
-    )
+    mse = tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f
+    rmsd = tf.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]

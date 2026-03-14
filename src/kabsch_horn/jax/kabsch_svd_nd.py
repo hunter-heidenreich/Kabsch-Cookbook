@@ -4,10 +4,14 @@ import jax.numpy as jnp
 
 @jax.custom_vjp
 def safe_svd(
-    A: jnp.ndarray, eps: float = 1e-12
+    A: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Gradient-safe SVD. Masks near-zero singular value differences (< eps) in the
-    backward pass to prevent NaN gradients for symmetric or degenerate inputs."""
+    backward pass to prevent NaN gradients for symmetric or degenerate inputs.
+
+    Returns (U, S, V) where V = Vh.mH -- note this differs from jnp.linalg.svd,
+    which returns Vh (V transposed).
+    """
     U, S, Vh = jnp.linalg.svd(A)
     # Like PyTorch logic, we must return V to remain coherent with algorithm
     # JAX returns U, S, Vh (where Vh is V^T)
@@ -15,33 +19,33 @@ def safe_svd(
 
 
 def _fwd(
-    A: jnp.ndarray, eps: float
+    A: jnp.ndarray,
 ) -> tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray], tuple]:
     U, S, Vh = jnp.linalg.svd(A)
     # return primal outputs and residuals for backward pass
     V = jnp.swapaxes(jnp.conj(Vh), -1, -2)
-    return (U, S, V), (U, S, Vh, eps)
+    return (U, S, V), (U, S, Vh)
 
 
 def _bwd(res, g):
     # Retrieve
-    U, S, Vh, eps = res
+    U, S, Vh = res
     grad_U, grad_S, grad_V = g
 
     # Check if None or SymbolicZero
     grad_U = (
         jnp.zeros_like(U)
-        if type(grad_U) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_U, jax.custom_derivatives.SymbolicZero)
         else grad_U
     )
     grad_S = (
         jnp.zeros_like(S)
-        if type(grad_S) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_S, jax.custom_derivatives.SymbolicZero)
         else grad_S
     )
     grad_V = (
         jnp.zeros_like(Vh)
-        if type(grad_V) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_V, jax.custom_derivatives.SymbolicZero)
         else grad_V
     )
 
@@ -57,11 +61,11 @@ def _bwd(res, g):
     D = S_sq[..., jnp.newaxis] - S_sq[..., jnp.newaxis, :]  # BxDxD
 
     # 3. Safe F
-    safe_D = jnp.where(jnp.abs(D) < eps, eps * jnp.sign(D + eps), D)
-    safe_D = jnp.where(jnp.eye(D.shape[-1], dtype=bool), 1.0, safe_D)
-
-    F = 1.0 / safe_D
-    F = jnp.where(jnp.eye(F.shape[-1], dtype=bool), 0.0, F)
+    eps = jnp.finfo(S.dtype).eps
+    safe_D = jnp.where(jnp.abs(D) < eps, jnp.where(D >= 0, eps, -eps), D)
+    diag_mask = jnp.eye(D.shape[-1], dtype=bool)
+    safe_D = jnp.where(diag_mask, 1.0, safe_D)
+    F = jnp.where(diag_mask, 0.0, 1.0 / safe_D)
 
     # 4. J and K
     Ut_dU = jnp.matmul(mH(U), grad_U)
@@ -71,15 +75,15 @@ def _bwd(res, g):
     K = F * (Vht_dVh - mH(Vht_dVh))
 
     # 5. Build term
-    vmap_diag = jax.vmap(jnp.diag) if S.ndim > 1 else jnp.diag
-    S_diag = vmap_diag(grad_S)
-    S_mat = vmap_diag(S)
+    eye = jnp.eye(S.shape[-1], dtype=S.dtype)
+    S_diag = grad_S[..., jnp.newaxis] * eye
+    S_mat = S[..., jnp.newaxis] * eye
 
     term = S_diag - jnp.matmul(J, S_mat) - jnp.matmul(S_mat, K)
 
     grad_A = jnp.matmul(U, jnp.matmul(term, Vh))
 
-    return grad_A, None
+    return (grad_A,)
 
 
 safe_svd.defvjp(_fwd, _bwd)
@@ -99,11 +103,20 @@ def kabsch(
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], and RMSD [...].
         float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
+
+    Note:
+        R is only stable under global translation when the cross-covariance matrix
+        H = P_c.T @ Q_c is well-conditioned. When the smallest singular value of H
+        is near zero, U and V from the SVD are not unique, and a small perturbation
+        can select a different rotation. Check the singular values of H if rotation
+        stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
@@ -134,10 +147,12 @@ def kabsch(
     U, _S, V = safe_svd(H)
 
     d = jnp.linalg.det(jnp.matmul(V, jnp.swapaxes(U, 1, 2)))
-    d_sign = jnp.sign(d + 1e-12)
+    # Nudge by eps so sign() returns +1/-1 even when det is exactly 0;
+    # avoids sign(0) = 0 which would zero out R's last column
+    _eps = jnp.finfo(P.dtype).eps
+    d_sign = jnp.sign(d + _eps)
 
-    ones = jnp.ones_like(d_sign)
-    B_diag = jnp.stack([ones] * (D - 1) + [d_sign], axis=-1)
+    B_diag = jnp.ones((*d_sign.shape, D), dtype=d_sign.dtype).at[..., -1].set(d_sign)
 
     R = jnp.matmul(V * B_diag[:, jnp.newaxis, :], jnp.swapaxes(U, 1, 2))
 
@@ -146,8 +161,8 @@ def kabsch(
     )
 
     aligned = jnp.matmul(P, jnp.swapaxes(R, 1, 2)) + t[:, jnp.newaxis, :]
-    diff_sq = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
-    rmsd = jnp.sqrt(jnp.clip(diff_sq, min=1e-12, max=None))
+    mse = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
+    rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -184,11 +199,24 @@ def kabsch_umeyama(
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D],
         scale [...], RMSD [...].
         float16/bfloat16 inputs are upcast to float32 and downcast on output.
+
+    Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
+        R is only stable under global translation and uniform scaling when the
+        cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
+        smallest singular value of H is near zero, U and V from the SVD are not
+        unique, and a small perturbation can select a different rotation. Check
+        the singular values of H if rotation stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (jnp.float16, jnp.bfloat16):
@@ -214,6 +242,7 @@ def kabsch_umeyama(
     p = P - centroid_P
     q = Q - centroid_Q
 
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
     H = jnp.matmul(jnp.swapaxes(p, 1, 2), q) / N
 
     var_P = jnp.sum(jnp.square(p), axis=(1, 2)) / N
@@ -221,12 +250,14 @@ def kabsch_umeyama(
     U, S, V = safe_svd(H)
 
     d = jnp.linalg.det(jnp.matmul(V, jnp.swapaxes(U, 1, 2)))
-    d_sign = jnp.sign(d + 1e-12)
+    # Nudge by eps so sign() returns +1/-1 even when det is exactly 0;
+    # avoids sign(0) = 0 which would zero out R's last column
+    _eps = jnp.finfo(P.dtype).eps
+    d_sign = jnp.sign(d + _eps)
 
-    ones = jnp.ones_like(d_sign)
-    S_corr = jnp.stack([ones] * (D - 1) + [d_sign], axis=-1)
+    S_corr = jnp.ones((*d_sign.shape, D), dtype=d_sign.dtype).at[..., -1].set(d_sign)
 
-    c = jnp.sum(S * S_corr, axis=-1) / jnp.clip(var_P, min=1e-12, max=None)
+    c = jnp.sum(S * S_corr, axis=-1) / jnp.clip(var_P, min=_eps, max=None)
 
     R = jnp.matmul(V * S_corr[:, jnp.newaxis, :], jnp.swapaxes(U, 1, 2))
 
@@ -238,11 +269,8 @@ def kabsch_umeyama(
         c[:, jnp.newaxis, jnp.newaxis] * jnp.matmul(P, jnp.swapaxes(R, 1, 2))
         + t[:, jnp.newaxis, :]
     )
-    rmsd = jnp.sqrt(
-        jnp.clip(
-            jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N, min=1e-12, max=None
-        )
-    )
+    mse = jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N
+    rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]

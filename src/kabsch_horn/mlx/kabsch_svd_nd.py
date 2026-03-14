@@ -1,5 +1,7 @@
 import mlx.core as mx
 
+from ._utils import _DTYPE_EPS, _warn_if_float64
+
 
 @mx.custom_function
 def safe_svd(A: mx.array) -> tuple[mx.array, mx.array, mx.array]:
@@ -44,8 +46,9 @@ def safe_svd_bwd(primals, cotangents, outputs):
     S_sq_diff = mx.expand_dims(S_sq, -2) - mx.expand_dims(S_sq, -1)
 
     # Add epsilon to diagonal before reciprocal
+    eps = _DTYPE_EPS.get(S_sq_diff.dtype, 1.1920929e-7)
     eye = mx.eye(S_sq_diff.shape[-1], dtype=S_sq_diff.dtype)
-    S_sq_diff_safe = mx.where(mx.abs(S_sq_diff) < 1e-12, eye * 1e-12, S_sq_diff)
+    S_sq_diff_safe = mx.where(mx.abs(S_sq_diff) < eps, eye * eps, S_sq_diff)
 
     F = 1.0 / S_sq_diff_safe
     F = mx.where(eye == 1, mx.zeros_like(F), F)
@@ -81,6 +84,13 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
     Raises:
         ValueError: If inputs are not 3-dimensional (D != 3).
+
+    Note:
+        R is only stable under global translation when the cross-covariance matrix
+        H = P_c.T @ Q_c is well-conditioned. When the smallest singular value of H
+        is near zero, U and V from the SVD are not unique, and a small perturbation
+        can select a different rotation. Check the singular values of H if rotation
+        stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
@@ -92,6 +102,9 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
             "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -154,7 +167,8 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     P_aligned = mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    rmsd = mx.sqrt(mse + _eps)
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)
@@ -185,6 +199,17 @@ def kabsch_umeyama(
 
     Raises:
         ValueError: If inputs are not 3-dimensional (D != 3).
+
+    Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
+        R is only stable under global translation and uniform scaling when the
+        cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
+        smallest singular value of H is near zero, U and V from the SVD are not
+        unique, and a small perturbation can select a different rotation. Check
+        the singular values of H if rotation stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
@@ -196,12 +221,13 @@ def kabsch_umeyama(
             f"MLX Kabsch only supports dim=3, got dim={P.shape[-1]}. "
             "Use the JAX, PyTorch, or TensorFlow implementations for N-D alignment."
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+    _warn_if_float64(P, Q)
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
         Q = Q.astype(mx.float32)
-
-    N = mx.array(P.shape[-2], dtype=P.dtype)
 
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
     centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
@@ -209,8 +235,9 @@ def kabsch_umeyama(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / N
-    H = mx.matmul(p.swapaxes(-1, -2), q) / N
+    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
+    H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
     U, S, Vt = safe_svd(H)
 
@@ -246,12 +273,10 @@ def kabsch_umeyama(
 
     R = mx.matmul(I_reflect_V, U.swapaxes(-1, -2))
 
-    S_corr = mx.concatenate(
-        [mx.ones((*S.shape[:-1], D - 1), dtype=P.dtype), mx.expand_dims(d_sign, -1)],
-        axis=-1,
-    )
+    S_corr = diag
 
-    c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, 1e-12)
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, _eps)
 
     centroid_P_rot = mx.matmul(centroid_P, R.swapaxes(-1, -2))
     t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
@@ -262,7 +287,7 @@ def kabsch_umeyama(
     P_aligned = c_exp * mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    rmsd = mx.sqrt(mse + _eps)
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)

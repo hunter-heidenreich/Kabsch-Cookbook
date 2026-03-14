@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 
 
@@ -30,13 +31,15 @@ def safe_svd(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
         S_sq = tf.square(S)
         S_sq_diff = tf.expand_dims(S_sq, -2) - tf.expand_dims(S_sq, -1)
 
-        # Add epsilon to diagonal before reciprocal to avoid Division by Zero problems
-        eye = tf.eye(tf.shape(S)[-1], dtype=S.dtype)
-        S_sq_diff_safe = tf.where(tf.abs(S_sq_diff) < 1e-12, eye * 1e-12, S_sq_diff)
-
-        F = 1.0 / S_sq_diff_safe
+        # Safe denominator: replace near-zero differences with eps * sign
+        # to prevent 1/0 = inf on off-diagonal entries where S_i ≈ S_j
+        eps = tf.cast(np.finfo(S.dtype.as_numpy_dtype).eps, S.dtype)
+        mask = tf.abs(S_sq_diff) < eps
+        safe_D = tf.where(mask, tf.where(S_sq_diff >= 0, eps, -eps), S_sq_diff)
+        safe_D = tf.linalg.set_diag(safe_D, tf.ones_like(tf.linalg.diag_part(safe_D)))
+        F = 1.0 / safe_D
         # Zero out the diagonal of F
-        F = tf.linalg.set_diag(F, tf.zeros_like(S))
+        F = tf.linalg.set_diag(F, tf.zeros_like(tf.linalg.diag_part(F)))
 
         if dU is not None:
             Ut_dU = tf.matmul(Ut, dU)
@@ -69,12 +72,34 @@ def safe_svd(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
 
 def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     """
-    Computes the optimal rotation and translation to align P and Q.
+    Computes the optimal rotation and translation to align P to Q.
+
+    Args:
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
+
+    Note:
+        R is only stable under global translation when the cross-covariance matrix
+        H = P_c.T @ Q_c is well-conditioned. When the smallest singular value of H
+        is near zero, U and V from the SVD are not unique, and a small perturbation
+        can select a different rotation. Check the singular values of H if rotation
+        stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    tf.debugging.assert_equal(
+        tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
+    if P.shape[-2] is not None and P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+    tf.debugging.assert_greater_equal(
+        tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
+    )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -107,12 +132,10 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     d_sign = tf.sign(det)
     d_sign = tf.where(d_sign == 0, tf.ones_like(d_sign), d_sign)
 
-    # Process batched tensors differently if P is batched or unbatched
-    # We construct a diagonal array
-    ones = tf.ones_like(d_sign)
+    # Build reflection diagonal: [1, 1, ..., d_sign]
     diag_vals = tf.concat(
         [
-            tf.repeat(tf.expand_dims(ones, -1), dim - 1, axis=-1),
+            tf.ones(tf.concat([tf.shape(d_sign), [dim - 1]], 0), dtype=d_sign.dtype),
             tf.expand_dims(d_sign, -1),
         ],
         axis=-1,
@@ -130,8 +153,9 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     # RMSD
     P_aligned = tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
-    rmsd = tf.sqrt(tf.maximum(mse, 1e-12))
+    rmsd = tf.sqrt(mse + _eps)
 
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)
@@ -145,12 +169,39 @@ def kabsch_umeyama(
     P: tf.Tensor, Q: tf.Tensor
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     """
-    Computes the optimal rotation, translation, and scale.
+    Computes the optimal rotation, translation, and scale (Q ~ c * R @ P + t).
+
+    Args:
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
+        RMSD [...].
+
+    Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
+        R is only stable under global translation and uniform scaling when the
+        cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
+        smallest singular value of H is near zero, U and V from the SVD are not
+        unique, and a small perturbation can select a different rotation. Check
+        the singular values of H if rotation stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    tf.debugging.assert_equal(
+        tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
+    if P.shape[-2] is not None and P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
+    tf.debugging.assert_greater_equal(
+        tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
+    )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -169,7 +220,7 @@ def kabsch_umeyama(
         tf.shape(P)[-2], P.dtype
     )
 
-    # Covariance
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
     N = tf.cast(tf.shape(P)[-2], P.dtype)
     H = tf.matmul(p, q, transpose_a=True) / N
 
@@ -186,10 +237,9 @@ def kabsch_umeyama(
     d_sign = tf.sign(det)
     d_sign = tf.where(d_sign == 0, tf.ones_like(d_sign), d_sign)
 
-    ones = tf.ones_like(d_sign)
     diag_vals = tf.concat(
         [
-            tf.repeat(tf.expand_dims(ones, -1), dim - 1, axis=-1),
+            tf.ones(tf.concat([tf.shape(d_sign), [dim - 1]], 0), dtype=d_sign.dtype),
             tf.expand_dims(d_sign, -1),
         ],
         axis=-1,
@@ -203,7 +253,8 @@ def kabsch_umeyama(
     S_corr = tf.linalg.diag_part(I_reflect)
 
     # Var_P is batched, S is batched. S * S_corr sum over last dim
-    c = tf.reduce_sum(S * S_corr, axis=-1) / tf.maximum(var_P, 1e-12)
+    _eps = np.finfo(P.dtype.as_numpy_dtype).eps
+    c = tf.reduce_sum(S * S_corr, axis=-1) / tf.maximum(var_P, _eps)
 
     # Translation
     # t = mean_Q - c * R @ mean_P
@@ -217,7 +268,7 @@ def kabsch_umeyama(
     P_aligned = c_exp * tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
-    rmsd = tf.sqrt(tf.maximum(mse, 1e-12))
+    rmsd = tf.sqrt(mse + _eps)
 
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)

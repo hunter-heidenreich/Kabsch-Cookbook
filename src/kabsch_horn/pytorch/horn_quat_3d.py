@@ -3,20 +3,28 @@ import torch
 
 class SafeEigh(torch.autograd.Function):
     """
-    Computes a safe Eigendecomposition for symmetric matrices.
+    Computes a safe eigendecomposition for symmetric matrices.
+    Returns (eigenvalues, eigenvectors) via torch.linalg.eigh.
+
+    The backward pass masks near-zero eigenvalue differences with
+    dtype-aware eps, preventing NaN gradients for degenerate inputs.
+    Higher-order gradients (create_graph=True) are supported since
+    the backward uses standard differentiable torch operations.
     """
 
     @staticmethod
-    def forward(ctx, A: torch.Tensor, eps: float = 1e-12):
+    def forward(ctx, A: torch.Tensor):
         L, V = torch.linalg.eigh(A)
         ctx.save_for_backward(L, V)
-        ctx.eps = eps
         return L, V
 
     @staticmethod
     def backward(ctx, grad_L, grad_V):
+        if not ctx.needs_input_grad[0]:
+            return (None,)
+
         L, V = ctx.saved_tensors
-        eps = ctx.eps
+        eps = torch.finfo(L.dtype).eps
 
         grad_L = torch.zeros_like(L) if grad_L is None else grad_L
         grad_V = torch.zeros_like(V) if grad_V is None else grad_V
@@ -27,12 +35,13 @@ class SafeEigh(torch.autograd.Function):
 
         # 2. Mask unstable divides directly
         mask = torch.abs(D) < eps
-        safe_D = torch.where(mask, eps * torch.sign(D + eps), D)
+        safe_D = torch.where(mask, torch.where(D >= 0, eps, -eps), D)
 
-        # 3. Prevent diagonal inversion problems outright
-        safe_D.diagonal(dim1=-2, dim2=-1).fill_(1.0)
+        # 3. Prevent diagonal inversion problems (out-of-place for torch.compile)
+        diag_mask = torch.eye(safe_D.shape[-1], dtype=torch.bool, device=safe_D.device)
+        safe_D = torch.where(diag_mask, torch.ones_like(safe_D), safe_D)
         F = 1.0 / safe_D
-        F.diagonal(dim1=-2, dim2=-1).zero_()
+        F = torch.where(diag_mask, torch.zeros_like(F), F)
 
         # 4. Standard backprop algebra using safe denominators
         Vt_dV = torch.matmul(V.mH, grad_V)
@@ -40,7 +49,7 @@ class SafeEigh(torch.autograd.Function):
 
         grad_A = torch.matmul(V, torch.matmul(term, V.mH))
 
-        return grad_A, None
+        return (grad_A,)
 
 
 def horn(
@@ -50,7 +59,14 @@ def horn(
     Computes optimal rotation and translation to align P to Q using Horn's quaternion
     method.
     """
-    assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
@@ -103,7 +119,7 @@ def horn(
     N = torch.cat([top_row, bottom_block], dim=-2)  # Bx4x4
 
     # 3. Extract the quaternion
-    _L, V = SafeEigh.apply(N, 1e-12)
+    _L, V = SafeEigh.apply(N)
     q_opt = V[..., -1]  # Bx4
 
     # 4. Convert to Rotation Matrix
@@ -138,9 +154,9 @@ def horn(
 
     # RMSD
     aligned = torch.matmul(p, R.transpose(1, 2))
-    rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts, min=1e-12)
-    )
+    _eps = torch.finfo(P.dtype).eps
+    mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts
+    rmsd = torch.sqrt(mse + _eps)
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -166,7 +182,14 @@ def horn_with_scale(
     """
     Computes optimal rotation, translation, and scale using Horn's method.
     """
-    assert P.shape[-1] == 3, "Horn's method is strictly for 3D point clouds"
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
@@ -191,7 +214,7 @@ def horn_with_scale(
 
     var_P = torch.sum(torch.square(p), dim=(1, 2)) / N_pts
 
-    # Cross-variance matrix
+    # Cross-covariance matrix
     H = torch.matmul(p.transpose(1, 2), q) / N_pts
 
     # S
@@ -217,7 +240,7 @@ def horn_with_scale(
 
     N = torch.cat([top_row, bottom_block], dim=-2)
 
-    _L, V = SafeEigh.apply(N, 1e-12)
+    _L, V = SafeEigh.apply(N)
     q_opt = V[..., -1]
 
     qw = q_opt[..., 0]
@@ -244,8 +267,9 @@ def horn_with_scale(
         dim=-2,
     )
 
+    _eps = torch.finfo(P.dtype).eps
     RH = torch.sum(R * H.transpose(-1, -2), dim=(1, 2))
-    c = RH / torch.clamp(var_P, min=1e-12)
+    c = RH / torch.clamp(var_P, min=_eps)
 
     t = centroid_Q.squeeze(1) - c.unsqueeze(-1) * torch.squeeze(
         torch.matmul(centroid_P, R.transpose(1, 2)), 1
@@ -255,9 +279,8 @@ def horn_with_scale(
         P, R.transpose(1, 2)
     ) + t.unsqueeze(1)
     diff = aligned_P - Q
-    rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(diff), dim=(1, 2)) / N_pts, min=1e-12)
-    )
+    mse = torch.sum(torch.square(diff), dim=(1, 2)) / N_pts
+    rmsd = torch.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]

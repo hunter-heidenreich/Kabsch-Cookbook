@@ -1,5 +1,7 @@
 import mlx.core as mx
 
+from ._utils import _DTYPE_EPS, _warn_if_float64
+
 
 @mx.custom_function
 def safe_eigh_fwd(A: mx.array) -> tuple[mx.array, mx.array]:
@@ -19,9 +21,9 @@ def safe_eigh_bwd(primals, cotangents, outputs):
     D = mx.expand_dims(L, -2) - mx.expand_dims(L, -1)
 
     eye = mx.eye(D.shape[-1], dtype=D.dtype)
-    eps = 1e-12
+    eps = _DTYPE_EPS.get(D.dtype, 1.1920929e-7)
     mask = mx.abs(D) < eps
-    safe_D = mx.where(mask, eps * mx.sign(D + eps), D)
+    safe_D = mx.where(mask, mx.where(D >= 0, eps, -eps), D)
     # Set diagonal to 1.0 so 1/safe_D is defined everywhere; zero it out after
     safe_D = mx.where(eye == 1, mx.ones_like(safe_D), safe_D)
 
@@ -49,15 +51,22 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     avoid NaN gradients when point clouds are symmetric or degenerate.
 
     Args:
-        P: Source points, shape [..., N, 3].
-        Q: Target points, shape [..., N, 3].
+        P: Source points as mx.array, shape [..., N, 3].
+        Q: Target points as mx.array, shape [..., N, 3].
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
         float16/bfloat16 inputs are upcast to float32 internally and downcast on output.
     """
-    P = mx.array(P)
-    Q = mx.array(Q)
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    _warn_if_float64(P, Q)
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
@@ -132,7 +141,8 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
     diff = aligned - q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    rmsd = mx.sqrt(mse + _eps)
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)
@@ -151,21 +161,27 @@ def horn_with_scale(
     Strictly 3D only. Uses gradient-safe eigendecomposition (safe_eigh_fwd).
 
     Args:
-        P: Source points, shape [..., N, 3].
-        Q: Target points, shape [..., N, 3].
+        P: Source points as mx.array, shape [..., N, 3].
+        Q: Target points as mx.array, shape [..., N, 3].
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
         scale [...], RMSD [...].
         float16/bfloat16 inputs are upcast to float32 and downcast on output.
     """
-    P = mx.array(P)
-    Q = mx.array(Q)
+    if P.shape != Q.shape:
+        raise ValueError(
+            f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    _warn_if_float64(P, Q)
+    if P.shape[-1] != 3:
+        raise ValueError("Horn's method is strictly for 3D point clouds")
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
     if orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
         Q = Q.astype(mx.float32)
-    N_pts_f = mx.array(P.shape[-2], dtype=P.dtype)
 
     centroid_P = mx.mean(P, axis=-2, keepdims=True)
     centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
@@ -173,9 +189,9 @@ def horn_with_scale(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / N_pts_f
+    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
 
-    H = mx.matmul(p.swapaxes(-1, -2), q) / N_pts_f
+    H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
     S = H + H.swapaxes(-1, -2)
     tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
@@ -231,7 +247,8 @@ def horn_with_scale(
     )
 
     RH = mx.sum(R * H.swapaxes(-1, -2), axis=(-1, -2))
-    c = RH / mx.maximum(var_P, 1e-12)
+    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+    c = RH / mx.maximum(var_P, _eps)
 
     t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
         mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
@@ -242,7 +259,7 @@ def horn_with_scale(
     ) + mx.expand_dims(t, -2)
     diff = aligned_P - Q
     mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mx.maximum(mse, 1e-12))
+    rmsd = mx.sqrt(mse + _eps)
 
     if orig_dtype in (mx.float16, mx.bfloat16):
         R = R.astype(orig_dtype)

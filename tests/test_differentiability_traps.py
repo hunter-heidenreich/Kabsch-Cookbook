@@ -616,6 +616,48 @@ class TestHornDifferentiabilityTraps:
     @pytest.mark.parametrize("adapter", frameworks)
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    def test_gradients_stable_nearly_collinear_different_clouds(
+        self,
+        adapter: FrameworkAdapter,
+        wrt: str,
+        algo: str,
+    ) -> None:
+        """Horn gradients remain finite when P != Q are near-collinear (Hypothesis).
+
+        Compared to test_gradients_stable_nearly_collinear_hypothesis (which sets
+        Q = P), this test draws P and Q independently so the cross-covariance H
+        is rank-1 but non-zero -- the realistic hard case SafeEigh is designed for.
+        """
+        # P != Q makes H non-zero, amplifying eigh gradients enough to overflow
+        # float16 even for base horn (unlike the P=Q sibling which is near-zero).
+        if getattr(adapter, "precision", "float64") in ("float16", "bfloat16"):
+            pytest.skip(
+                "Near-collinear independent clouds produce large eigh gradients "
+                "that overflow float16 range."
+            )
+
+        @settings(
+            max_examples=30,
+            suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+            deadline=None,
+        )
+        @given(nearly_collinear_3d(), nearly_collinear_3d())
+        def _inner(P_np: np.ndarray, Q_np: np.ndarray) -> None:
+            # Truncate to the shorter cloud so P and Q have the same number of points.
+            n = min(P_np.shape[0], Q_np.shape[0])
+            P_np_t = P_np[:n]
+            Q_np_t = Q_np[:n]
+            P = adapter.convert_in(P_np_t.astype(np.float64))
+            Q = adapter.convert_in(Q_np_t.astype(np.float64))
+            func = adapter.get_transform_func(algo)
+            grad = adapter.get_grad(P, Q, func, wrt=wrt)
+            assert np.all(np.isfinite(grad))
+
+        _inner()
+
+    @pytest.mark.parametrize("adapter", frameworks)
+    @pytest.mark.parametrize("wrt", ["P", "Q"])
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
     def test_gradients_stable_extreme_scale_hypothesis(
         self,
         adapter: FrameworkAdapter,

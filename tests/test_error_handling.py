@@ -26,10 +26,10 @@ class TestErrorHandling:
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
 
-        with pytest.raises(adapter.mismatch_exception_type):
+        with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_dims_differ(
         self,
@@ -37,7 +37,7 @@ class TestErrorHandling:
         algo: str,
     ) -> None:
         """
-        Verifies that kabsch/umeyama raise or propagate an error when
+        Verifies that all algorithms raise or propagate an error when
         P and Q have mismatched dimensionality (D).
         """
         rng = np.random.default_rng(0)
@@ -48,7 +48,7 @@ class TestErrorHandling:
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
 
-        with pytest.raises(adapter.mismatch_exception_type):
+        with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
     @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
@@ -127,3 +127,111 @@ class TestErrorHandling:
                 )
             else:
                 assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
+
+
+class TestNumpySinglePointRejection:
+    """NumPy N=1 inputs must raise ValueError for all algorithms."""
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_numpy_single_point_raises_value_error(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        P = np.array([[1.0, 2.0, 3.0]], dtype=np.float64)
+        Q = np.array([[4.0, 5.0, 6.0]], dtype=np.float64)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+
+        with pytest.raises(ValueError, match="2 points"):
+            func_map[algo](P, Q)
+
+
+class TestNumpyFloat16Upcast:
+    """NumPy float16 inputs should be upcast internally (not raise TypeError)."""
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_numpy_float16_no_type_error(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(0)
+        P = rng.random((5, 3)).astype(np.float16)
+        Q = rng.random((5, 3)).astype(np.float16)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+        result = func_map[algo](P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_numpy_float16_batched(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(1)
+        P = rng.random((2, 5, 3)).astype(np.float16)
+        Q = rng.random((2, 5, 3)).astype(np.float16)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+        result = func_map[algo](P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
+
+    @pytest.mark.parametrize("algo", ["kabsch", "kabsch_umeyama"])
+    def test_numpy_float16_higher_dim(self, algo: str) -> None:
+        from kabsch_horn.numpy import kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(2)
+        P = rng.random((5, 4)).astype(np.float16)
+        Q = rng.random((5, 4)).astype(np.float16)
+
+        func = kabsch if algo == "kabsch" else kabsch_umeyama
+        result = func(P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float16, f"Expected float16 output, got {arr.dtype}"
+
+
+class TestNumpyFloat32DtypePromotion:
+    """NumPy functions should preserve float32 (not promote to float64)."""
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_float32_stays_float32(self, algo: str) -> None:
+        from kabsch_horn.numpy import horn, horn_with_scale, kabsch, kabsch_umeyama
+
+        rng = np.random.default_rng(0)
+        P = rng.random((5, 3)).astype(np.float32)
+        Q = rng.random((5, 3)).astype(np.float32)
+
+        func_map = {
+            "kabsch": kabsch,
+            "kabsch_umeyama": kabsch_umeyama,
+            "horn": horn,
+            "horn_with_scale": horn_with_scale,
+        }
+        result = func_map[algo](P, Q)
+
+        for arr in result:
+            assert arr.dtype == np.float32, f"Expected float32 output, got {arr.dtype}"

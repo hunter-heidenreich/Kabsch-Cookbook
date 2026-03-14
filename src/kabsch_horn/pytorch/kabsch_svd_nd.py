@@ -3,16 +3,18 @@ import torch
 
 class SafeSVD(torch.autograd.Function):
     """
-    Computes a safe Singular Value Decomposition (SVD) for 3D covariance matrices.
-    Returns (U, S, V). Note that PyTorch SVD returns V, not V^T.
+    Computes a safe Singular Value Decomposition (SVD) for covariance matrices.
+    Returns (U, S, V) where A = U @ diag(S) @ V^T.
 
-    This avoids numerical instability (NaNs) when computing gradients
-    with identical singular values (i.e. perfectly aligned/symmetrical systems).
+    The backward pass masks near-zero singular-value differences with
+    dtype-aware eps, preventing NaN gradients for symmetric or degenerate
+    inputs. Higher-order gradients (create_graph=True) are supported since
+    the backward uses standard differentiable torch operations.
     """
 
     @staticmethod
     def forward(
-        ctx, A: torch.Tensor, eps: float = 1e-12
+        ctx, A: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         try:
             U, S, Vh = torch.linalg.svd(A)
@@ -20,29 +22,33 @@ class SafeSVD(torch.autograd.Function):
             # NaN or degenerate input: propagate NaN without crashing.
             # torch.linalg.svd raises rather than returning NaN, so we handle
             # it explicitly to satisfy the NaN-propagation contract.
-            nan_mat = A.new_full(A.shape, float("nan"))
-            nan_s = A.new_full(A.shape[:-1], float("nan"))
-            ctx.save_for_backward(nan_mat, nan_s, nan_mat)
-            ctx.eps = eps
-            return nan_mat, nan_s, nan_mat
+            # U is [..., M, M], S is [..., min(M,N)], Vh is [..., N, N]
+            nan_u = A.new_full((*A.shape[:-1], A.shape[-2]), float("nan"))
+            M, N = A.shape[-2], A.shape[-1]
+            nan_s = A.new_full((*A.shape[:-2], min(M, N)), float("nan"))
+            nan_vh = A.new_full((*A.shape[:-2], A.shape[-1], A.shape[-1]), float("nan"))
+            ctx.save_for_backward(nan_u, nan_s, nan_vh)
+            return nan_u, nan_s, nan_vh
         # In PyTorch 1.11+, linalg.svd returns Vh (V^T or V^H).
         # We want V for the standard Kabsch logic, so V = Vh.transpose(-2, -1)
         V = Vh.mH  # Conjugate transpose / standard transpose for real.
 
         ctx.save_for_backward(U, S, Vh)
-        ctx.eps = eps
         return U, S, V
 
     @staticmethod
     def backward(
         ctx, grad_U: torch.Tensor, grad_S: torch.Tensor, grad_V: torch.Tensor
-    ) -> tuple[torch.Tensor, None]:
+    ) -> tuple[torch.Tensor]:
+        if not ctx.needs_input_grad[0]:
+            return (None,)
+
         U, S, Vh = ctx.saved_tensors
-        eps = ctx.eps
+        eps = torch.finfo(S.dtype).eps
 
         # Backward pass of SVD for real matrices:
         # A = U S V^T
-        # dA = U (diag(dS) + J S + S K) V^T
+        # dA = U (diag(dS) - J S - S K) V^T
 
         # Replace None gradients with zeros
         grad_U = torch.zeros_like(U) if grad_U is None else grad_U
@@ -60,21 +66,22 @@ class SafeSVD(torch.autograd.Function):
         D = S_sq.unsqueeze(-1) - S_sq.unsqueeze(-2)  # BxDxD
 
         # 3. Safe F matrix computation
-        # eps=1e-12 masks singular value differences below float64 machine precision
-        # (~2e-16) but well above float32 loss (~1e-7), preventing division-by-zero
-        # NaN gradients without distorting the backward signal.
+        # eps = finfo(dtype).eps masks singular value differences at the dtype's
+        # machine precision, preventing division-by-zero NaN gradients without
+        # distorting the backward signal.
         D_abs = torch.abs(D)
         mask = D_abs < eps
 
-        # Safe denominator replacing small elements with eps * sign
-        safe_D = torch.where(mask, eps * torch.sign(D + eps), D)
+        # Safe denominator preserving sign for sub-eps values
+        safe_D = torch.where(mask, torch.where(D >= 0, eps, -eps), D)
 
-        # Protect diagonal from 1/0
-        safe_D.diagonal(dim1=-2, dim2=-1).fill_(1.0)
+        # Protect diagonal from 1/0 (out-of-place for torch.compile)
+        diag_mask = torch.eye(safe_D.shape[-1], dtype=torch.bool, device=safe_D.device)
+        safe_D = torch.where(diag_mask, torch.ones_like(safe_D), safe_D)
 
         F = 1.0 / safe_D
         # Set diagonal to exactly 0 to satisfy Hadamard condition
-        F.diagonal(dim1=-2, dim2=-1).zero_()
+        F = torch.where(diag_mask, torch.zeros_like(F), F)
 
         # 4. Compute J and K
         Ut_dU = torch.matmul(U.mH, grad_U)
@@ -93,29 +100,20 @@ class SafeSVD(torch.autograd.Function):
 
         grad_A = torch.matmul(U, torch.matmul(term, Vh))
 
-        return grad_A, None
+        return (grad_A,)
 
 
 def safe_svd(
-    A: torch.Tensor, eps: float = 1e-12
+    A: torch.Tensor,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Differentiable wrapper for SVD avoiding NaNs.
     Args:
-        A: (..., D, D) tensor
-        eps: Small value for numerical stability
+        A: (..., D, D) tensor (ndim >= 3)
     Returns:
         U, S, V  (V, NOT Vh)
     """
-    orig_shape = A.shape
-    if A.ndim == 2:
-        A = A.unsqueeze(0)
-
-    U, S, V = SafeSVD.apply(A, eps)
-
-    if len(orig_shape) == 2:
-        return U.squeeze(0), S.squeeze(0), V.squeeze(0)
-    return U, S, V
+    return SafeSVD.apply(A)
 
 
 def kabsch(
@@ -123,12 +121,27 @@ def kabsch(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes the optimal rotation and translation to align P to Q using Safe SVD.
-    Returns (R, t, rmsd).
+
+    Args:
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
+
+    Returns:
+        (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
+
+    Note:
+        R is only stable under global translation when the cross-covariance matrix
+        H = P_c.T @ Q_c is well-conditioned. When the smallest singular value of H
+        is near zero, U and V from the SVD are not unique, and a small perturbation
+        can select a different rotation. Check the singular values of H if rotation
+        stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
@@ -164,26 +177,23 @@ def kabsch(
 
     # 1. Determinant validation for right-handed coordinate system
     # (Checking for reflections)
-    d = torch.det(torch.matmul(V, U.transpose(1, 2)))  # B
+    d = torch.linalg.det(torch.matmul(V, U.transpose(1, 2)))  # B
 
-    # 2. Build B_diag (safely without in-place mutation for Autograd)
-    ones = torch.ones_like(d)
-
+    # 2. Build B_diag
     # Sign safely mapping 0 determinant to 1.0 instead of 0.0
-    d_sign = torch.sign(d + 1e-12)
+    d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
-    B_diag = torch.stack([ones] * (D - 1) + [d_sign], dim=-1)  # BxD
+    B_diag = torch.ones(*d_sign.shape, D, dtype=P.dtype, device=P.device)
+    B_diag[..., -1] = d_sign
 
     # 3. Optimal Rotation: R = V * B_diag * U^T
     R = torch.matmul(V * B_diag.unsqueeze(1), U.transpose(1, 2))  # Bx3x3
 
-    # RMSD (Adding eps for sqrt derivative safety near 0)
+    # RMSD (mse + eps for smooth sqrt gradient near zero)
     aligned = torch.matmul(p, R.transpose(1, 2))
-    rmsd = torch.sqrt(
-        torch.clamp(
-            torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1], min=1e-12
-        )
-    )
+    _eps = torch.finfo(P.dtype).eps
+    mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1]
+    rmsd = torch.sqrt(mse + _eps)
 
     # Fast Translation
     t = centroid_Q.squeeze(1) - torch.squeeze(
@@ -215,12 +225,32 @@ def kabsch_umeyama(
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes optimal rotation, translation, and scale (Q ~ c * R @ P + t).
-    Returns (R, t, c, rmsd).
+
+    Args:
+        P: Source points, shape [..., N, D].
+        Q: Target points, shape [..., N, D].
+
+    Returns:
+        (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
+        RMSD [...].
+
+    Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
+        R is only stable under global translation and uniform scaling when the
+        cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
+        smallest singular value of H is near zero, U and V from the SVD are not
+        unique, and a small perturbation can select a different rotation. Check
+        the singular values of H if rotation stability matters for your use case.
     """
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.shape[-2] < 2:
+        raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
     if orig_dtype in (torch.float16, torch.bfloat16):
@@ -248,7 +278,7 @@ def kabsch_umeyama(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    # Cross-variance matrix
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
     H = torch.matmul(p.transpose(1, 2), q) / N
 
     # Variances of P
@@ -258,14 +288,15 @@ def kabsch_umeyama(
     U, S, V = safe_svd(H)
 
     # Right-hand coordinate system
-    d = torch.det(torch.matmul(V, U.transpose(1, 2)))
-    d_sign = torch.sign(d + 1e-12)
+    d = torch.linalg.det(torch.matmul(V, U.transpose(1, 2)))
+    d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
-    ones = torch.ones_like(d_sign)
-    S_corr = torch.stack([ones] * (D - 1) + [d_sign], dim=-1)  # BxD
+    S_corr = torch.ones(*d_sign.shape, D, dtype=P.dtype, device=P.device)
+    S_corr[..., -1] = d_sign
 
     # Scale
-    c = torch.sum(S * S_corr, dim=-1) / torch.clamp(var_P, min=1e-12)
+    _eps = torch.finfo(P.dtype).eps
+    c = torch.sum(S * S_corr, dim=-1) / torch.clamp(var_P, min=_eps)
 
     # Rotation
     R = torch.matmul(V * S_corr.unsqueeze(1), U.transpose(1, 2))
@@ -279,9 +310,8 @@ def kabsch_umeyama(
     aligned_P = c.unsqueeze(-1).unsqueeze(-1) * torch.matmul(
         P, R.transpose(1, 2)
     ) + t.unsqueeze(1)
-    rmsd = torch.sqrt(
-        torch.clamp(torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N, min=1e-12)
-    )
+    mse = torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N
+    rmsd = torch.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
