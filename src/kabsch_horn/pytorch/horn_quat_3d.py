@@ -3,7 +3,13 @@ import torch
 
 class SafeEigh(torch.autograd.Function):
     """
-    Computes a safe Eigendecomposition for symmetric matrices.
+    Computes a safe eigendecomposition for symmetric matrices.
+    Returns (eigenvalues, eigenvectors) via torch.linalg.eigh.
+
+    The backward pass masks near-zero eigenvalue differences with
+    dtype-aware eps, preventing NaN gradients for degenerate inputs.
+    Higher-order gradients (create_graph=True) are supported since
+    the backward uses standard differentiable torch operations.
     """
 
     @staticmethod
