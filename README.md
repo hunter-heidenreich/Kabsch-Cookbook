@@ -89,6 +89,8 @@ compiled_kabsch = torch.compile(kh.kabsch)
 R, t, rmsd = compiled_kabsch(P, Q)
 ```
 
+The custom autograd functions (`SafeSVD`, `SafeEigh`) act as graph breaks under `torch.compile`, so the compiler cannot fuse operations across the SVD/eigh boundary. Surrounding code is still compiled and optimized.
+
 **JAX** (`jax.jit`):
 
 ```python

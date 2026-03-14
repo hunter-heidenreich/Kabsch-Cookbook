@@ -8,7 +8,7 @@ def safe_eigh(A: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor]:
 
 
 @tf.custom_gradient
-def call_safe_eigh(A: tf.Tensor) -> tuple[tuple[tf.Tensor, tf.Tensor], ...]:
+def call_safe_eigh(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
     """Gradient-safe eigendecomposition for symmetric matrices. Masks near-zero
     eigenvalue differences (< eps) in the backward pass to prevent NaN gradients."""
     L, V = safe_eigh(A)
