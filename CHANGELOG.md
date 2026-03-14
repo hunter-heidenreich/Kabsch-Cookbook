@@ -2,6 +2,40 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.0](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.2.0...v0.3.0) (2026-03-14)
+
+
+### Features
+
+* **mlx:** warn when float64 silently falls back to CPU ([#103](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/103)) ([6a36177](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/6a36177df9a7e9dbed770acd1f729fc236fb0256))
+
+
+### Bug Fixes
+
+* **autograd:** gradient correctness, NaN shape hardening, and sign-symmetric safe denominators ([#131](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/131)) ([503d95e](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/503d95e982bb4a56c4197395b9e40066e7c81eab))
+* **horn/kabsch:** batch dims, cross-framework validation, and RMSD consistency ([#108](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/108)) ([0bedf35](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/0bedf355df9549a3973813a7309404c874b5a35b))
+* **jax:** add shape validation to horn, extract _horn_core, and clean up idioms ([#109](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/109)) ([9cae22a](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/9cae22a9746dcd36215e7eb525a00eedea00a0d1))
+* **jax:** replace vmap_diag conditional with eye-broadcast in SVD backward ([#107](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/107)) ([442f2dd](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/442f2ddbf3b1a68d675b0dfcf5f2c4488bdcd533)), closes [#31](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/31)
+* P1 correctness bugs and review follow-ups ([#128](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/128), [#127](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/127), [#130](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/130)) ([#133](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/133)) ([4a51e89](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/4a51e8910124b759d30883b4cd7b46bcc5d3f6f9))
+* **pytorch,tensorflow:** remove in-place view mutations and tf.rank tracing bug ([#132](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/132)) ([65d92ca](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/65d92ca4e6ebbc236d0152178353969341824740)), closes [#111](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/111) [#124](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/124)
+* **pytorch:** correct SVD backward comment, document higher-order grads, replace deprecated torch.det ([#139](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/139)) ([ba75971](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/ba7597151a487a7ba8d7cb71fbec3b43fd5f563c))
+* replace hardcoded eps=1e-12 with dtype-aware finfo(dtype).eps ([#110](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/110)) ([#136](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/136)) ([d34759d](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/d34759dbc8418cb9dea047cad8b39ec3560d3a8a))
+* switch RMSD sqrt guard from max(mse, eps) to mse + eps ([#137](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/137)) ([#138](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/138)) ([219ded6](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/219ded6e9e9a6144b065e5bee5a7b46228740bda))
+* **tensorflow:** runtime shape validation for dynamic shapes ([#134](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/134)) ([#135](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/135)) ([d5e5e9b](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/d5e5e9bb56ef878d505459c3291a6984f92f58a4))
+* **tests:** guard nearly_coplanar_nd against dim &lt; 3 ([#102](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/102)) ([042652f](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/042652f4ded439766335f2fb42e9804fcf680b6f)), closes [#93](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/93)
+
+
+### Performance Improvements
+
+* replace repeated ones-stack pattern with single-allocation in all frameworks ([#143](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/143)) ([420dcd3](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/420dcd365a042dc36708b187071528917ad64507)), closes [#30](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/30)
+
+
+### Documentation
+
+* add MkDocs Material documentation site ([#142](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/142)) ([b553a2e](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/b553a2e1186b9d6d46844ac6d6f4f562816a4885))
+* docstrings, normalization notes, compile/jit guidance ([#141](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/141)) ([0236c37](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/0236c3787af5867a23aa3f85aedf615f7c9bef4a))
+* document cross-covariance conditioning requirement for rotation stability ([#105](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/105)) ([0f45c53](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/0f45c53caab44762b3b205f4e3f65937212a3b76))
+
 ## [0.2.0](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.1.0...v0.2.0) (2026-03-08)
 
 
