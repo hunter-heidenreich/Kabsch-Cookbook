@@ -22,12 +22,12 @@ def _eigh_bwd(res: tuple, g: tuple) -> tuple:
 
     grad_L = (
         jnp.zeros_like(L)
-        if type(grad_L) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_L, jax.custom_derivatives.SymbolicZero)
         else grad_L
     )
     grad_V = (
         jnp.zeros_like(V)
-        if type(grad_V) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_V, jax.custom_derivatives.SymbolicZero)
         else grad_V
     )
 

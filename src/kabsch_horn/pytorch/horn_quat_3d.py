@@ -20,6 +20,9 @@ class SafeEigh(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_L, grad_V):
+        if not ctx.needs_input_grad[0]:
+            return (None,)
+
         L, V = ctx.saved_tensors
         eps = torch.finfo(L.dtype).eps
 

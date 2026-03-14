@@ -35,17 +35,17 @@ def _bwd(res, g):
     # Check if None or SymbolicZero
     grad_U = (
         jnp.zeros_like(U)
-        if type(grad_U) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_U, jax.custom_derivatives.SymbolicZero)
         else grad_U
     )
     grad_S = (
         jnp.zeros_like(S)
-        if type(grad_S) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_S, jax.custom_derivatives.SymbolicZero)
         else grad_S
     )
     grad_V = (
         jnp.zeros_like(Vh)
-        if type(grad_V) is jax.custom_derivatives.SymbolicZero
+        if isinstance(grad_V, jax.custom_derivatives.SymbolicZero)
         else grad_V
     )
 
