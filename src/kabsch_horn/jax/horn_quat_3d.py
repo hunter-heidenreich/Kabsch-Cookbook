@@ -168,13 +168,8 @@ def horn(
 
     aligned = jnp.matmul(p, jnp.swapaxes(R, 1, 2))
     _eps = jnp.finfo(P.dtype).eps
-    rmsd = jnp.sqrt(
-        jnp.clip(
-            jnp.sum(jnp.square(aligned - q), axis=(1, 2)) / N_pts,
-            min=_eps,
-            max=None,
-        )
-    )
+    mse = jnp.sum(jnp.square(aligned - q), axis=(1, 2)) / N_pts
+    rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -254,9 +249,8 @@ def horn_with_scale(
         + t[:, jnp.newaxis, :]
     )
     diff = aligned_P - Q
-    rmsd = jnp.sqrt(
-        jnp.clip(jnp.sum(jnp.square(diff), axis=(1, 2)) / N_pts, min=_eps, max=None)
-    )
+    mse = jnp.sum(jnp.square(diff), axis=(1, 2)) / N_pts
+    rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]

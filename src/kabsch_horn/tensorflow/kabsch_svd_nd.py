@@ -157,7 +157,7 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     diff = P_aligned - Q
     _eps = np.finfo(P.dtype.as_numpy_dtype).eps
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
-    rmsd = tf.sqrt(tf.maximum(mse, _eps))
+    rmsd = tf.sqrt(mse + _eps)
 
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)
@@ -267,7 +267,7 @@ def kabsch_umeyama(
     P_aligned = c_exp * tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
     mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
-    rmsd = tf.sqrt(tf.maximum(mse, _eps))
+    rmsd = tf.sqrt(mse + _eps)
 
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)

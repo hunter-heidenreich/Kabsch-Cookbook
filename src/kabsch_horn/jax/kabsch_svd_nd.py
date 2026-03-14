@@ -161,8 +161,8 @@ def kabsch(
     )
 
     aligned = jnp.matmul(P, jnp.swapaxes(R, 1, 2)) + t[:, jnp.newaxis, :]
-    diff_sq = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
-    rmsd = jnp.sqrt(jnp.clip(diff_sq, min=_eps, max=None))
+    mse = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
+    rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -264,11 +264,8 @@ def kabsch_umeyama(
         c[:, jnp.newaxis, jnp.newaxis] * jnp.matmul(P, jnp.swapaxes(R, 1, 2))
         + t[:, jnp.newaxis, :]
     )
-    rmsd = jnp.sqrt(
-        jnp.clip(
-            jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N, min=_eps, max=None
-        )
-    )
+    mse = jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N
+    rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
