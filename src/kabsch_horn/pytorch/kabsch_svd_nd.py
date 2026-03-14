@@ -3,11 +3,13 @@ import torch
 
 class SafeSVD(torch.autograd.Function):
     """
-    Computes a safe Singular Value Decomposition (SVD) for 3D covariance matrices.
-    Returns (U, S, V). Note that PyTorch SVD returns V, not V^T.
+    Computes a safe Singular Value Decomposition (SVD) for covariance matrices.
+    Returns (U, S, V) where A = U @ diag(S) @ V^T.
 
-    This avoids numerical instability (NaNs) when computing gradients
-    with identical singular values (i.e. perfectly aligned/symmetrical systems).
+    The backward pass masks near-zero singular-value differences with
+    dtype-aware eps, preventing NaN gradients for symmetric or degenerate
+    inputs. Higher-order gradients (create_graph=True) are supported since
+    the backward uses standard differentiable torch operations.
     """
 
     @staticmethod
@@ -43,7 +45,7 @@ class SafeSVD(torch.autograd.Function):
 
         # Backward pass of SVD for real matrices:
         # A = U S V^T
-        # dA = U (diag(dS) + J S + S K) V^T
+        # dA = U (diag(dS) - J S - S K) V^T
 
         # Replace None gradients with zeros
         grad_U = torch.zeros_like(U) if grad_U is None else grad_U
@@ -180,7 +182,7 @@ def kabsch(
 
     # 1. Determinant validation for right-handed coordinate system
     # (Checking for reflections)
-    d = torch.det(torch.matmul(V, U.transpose(1, 2)))  # B
+    d = torch.linalg.det(torch.matmul(V, U.transpose(1, 2)))  # B
 
     # 2. Build B_diag (safely without in-place mutation for Autograd)
     ones = torch.ones_like(d)
@@ -288,7 +290,7 @@ def kabsch_umeyama(
     U, S, V = safe_svd(H)
 
     # Right-hand coordinate system
-    d = torch.det(torch.matmul(V, U.transpose(1, 2)))
+    d = torch.linalg.det(torch.matmul(V, U.transpose(1, 2)))
     d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
     ones = torch.ones_like(d_sign)
