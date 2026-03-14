@@ -1,13 +1,6 @@
 import mlx.core as mx
 
-from ._utils import _warn_if_float64
-
-_DTYPE_EPS = {
-    mx.float16: 9.765625e-4,
-    mx.bfloat16: 7.8125e-3,
-    mx.float32: 1.1920929e-7,
-    mx.float64: 2.220446049250313e-16,
-}
+from ._utils import _DTYPE_EPS, _warn_if_float64
 
 
 @mx.custom_function
