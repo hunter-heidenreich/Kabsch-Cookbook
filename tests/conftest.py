@@ -178,16 +178,19 @@ def pytest_collection_modifyitems(session, config, items) -> None:
         # Check if the test has a callspec (i.e. is parametrized)
         if hasattr(item, "callspec"):
             params = item.callspec.params
-            # Skip MLX on unsupported dims
+            # Skip MLX on unsupported dims,
+            # unless the test explicitly checks rejection behaviour.
             if "dim" in params and "adapter" in params:
                 dim = params["dim"]
                 adapter = params["adapter"]
-                if not adapter.supports_dim(dim):
+                if not adapter.supports_dim(dim) and "non_3d" not in item.name:
                     continue
-            # Skip 3D-only algorithms (Horn) for non-3D dims
+            # Skip 3D-only algorithms (Horn) for non-3D dims,
+            # unless the test explicitly checks that rejection behaviour.
             if "algo" in params and "dim" in params:
                 if params["algo"] in ("horn", "horn_with_scale") and params["dim"] != 3:
-                    continue
+                    if "non_3d" not in item.name:
+                        continue
             # Skip float16/bfloat16 except dtype-preservation tests
             if not full and "adapter" in params:
                 adapter = params["adapter"]

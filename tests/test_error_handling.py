@@ -128,6 +128,20 @@ class TestErrorHandling:
             else:
                 assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
 
+    @pytest.mark.parametrize("algo", ["horn", "horn_with_scale"])
+    @pytest.mark.parametrize(
+        "dim", [pytest.param(2, id="2D"), pytest.param(4, id="4D")]
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_horn_raises_error_for_non_3d_input(self, adapter, algo, dim):
+        """Horn algorithms must reject inputs where D != 3."""
+        rng = np.random.default_rng(42)
+        P = adapter.convert_in(rng.standard_normal((5, dim)).astype(np.float64))
+        Q = adapter.convert_in(rng.standard_normal((5, dim)).astype(np.float64))
+        func = adapter.get_transform_func(algo)
+        with pytest.raises(ValueError, match="3D"):
+            func(P, Q)
+
 
 class TestNumpySinglePointRejection:
     """NumPy N=1 inputs must raise ValueError for all algorithms."""
