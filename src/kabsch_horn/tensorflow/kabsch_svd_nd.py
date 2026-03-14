@@ -132,12 +132,10 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     d_sign = tf.sign(det)
     d_sign = tf.where(d_sign == 0, tf.ones_like(d_sign), d_sign)
 
-    # Process batched tensors differently if P is batched or unbatched
-    # We construct a diagonal array
-    ones = tf.ones_like(d_sign)
+    # Build reflection diagonal: [1, 1, ..., d_sign]
     diag_vals = tf.concat(
         [
-            tf.repeat(tf.expand_dims(ones, -1), dim - 1, axis=-1),
+            tf.ones(tf.concat([tf.shape(d_sign), [dim - 1]], 0), dtype=d_sign.dtype),
             tf.expand_dims(d_sign, -1),
         ],
         axis=-1,
@@ -239,10 +237,9 @@ def kabsch_umeyama(
     d_sign = tf.sign(det)
     d_sign = tf.where(d_sign == 0, tf.ones_like(d_sign), d_sign)
 
-    ones = tf.ones_like(d_sign)
     diag_vals = tf.concat(
         [
-            tf.repeat(tf.expand_dims(ones, -1), dim - 1, axis=-1),
+            tf.ones(tf.concat([tf.shape(d_sign), [dim - 1]], 0), dtype=d_sign.dtype),
             tf.expand_dims(d_sign, -1),
         ],
         axis=-1,
