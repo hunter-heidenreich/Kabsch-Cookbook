@@ -92,8 +92,14 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    tf.debugging.assert_equal(
+        tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
     if P.shape[-2] is not None and P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+    tf.debugging.assert_greater_equal(
+        tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
+    )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -186,8 +192,14 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    tf.debugging.assert_equal(
+        tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
     if P.shape[-2] is not None and P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+    tf.debugging.assert_greater_equal(
+        tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
+    )
 
     orig_dtype = P.dtype
     if orig_dtype in (tf.float16, tf.bfloat16):
