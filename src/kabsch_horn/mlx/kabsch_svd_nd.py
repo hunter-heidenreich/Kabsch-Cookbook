@@ -201,6 +201,10 @@ def kabsch_umeyama(
         ValueError: If inputs are not 3-dimensional (D != 3).
 
     Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
         R is only stable under global translation and uniform scaling when the
         cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
         smallest singular value of H is near zero, U and V from the SVD are not
@@ -232,6 +236,7 @@ def kabsch_umeyama(
     q = Q - centroid_Q
 
     var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
     H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
     U, S, Vt = safe_svd(H)

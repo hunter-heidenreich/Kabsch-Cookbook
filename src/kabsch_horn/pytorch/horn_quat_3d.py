@@ -214,7 +214,7 @@ def horn_with_scale(
 
     var_P = torch.sum(torch.square(p), dim=(1, 2)) / N_pts
 
-    # Cross-variance matrix
+    # Cross-covariance matrix
     H = torch.matmul(p.transpose(1, 2), q) / N_pts
 
     # S

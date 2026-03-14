@@ -236,6 +236,10 @@ def kabsch_umeyama(
         RMSD [...].
 
     Note:
+        Unlike kabsch, the cross-covariance H is divided by N here. This per-point
+        normalization is required by the Umeyama scale estimator
+        (c = trace(S * D) / var_P) and does not affect the rotation or translation.
+
         R is only stable under global translation and uniform scaling when the
         cross-covariance matrix H = P_c.T @ Q_c is well-conditioned. When the
         smallest singular value of H is near zero, U and V from the SVD are not
@@ -275,7 +279,7 @@ def kabsch_umeyama(
     p = P - centroid_P
     q = Q - centroid_Q
 
-    # Cross-variance matrix
+    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
     H = torch.matmul(p.transpose(1, 2), q) / N
 
     # Variances of P
