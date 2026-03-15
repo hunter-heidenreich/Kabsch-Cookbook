@@ -261,6 +261,7 @@ The test suite is organized around mathematical claims rather than code coverage
 | [`tests/test_mixed_dtype.py`](tests/test_mixed_dtype.py) | Correct behavior when P and Q have different dtypes |
 | [`tests/test_mlx_float64_warning.py`](tests/test_mlx_float64_warning.py) | MLX emits a warning when float64 silently falls back to CPU |
 | [`tests/test_tf_dynamic_validation.py`](tests/test_tf_dynamic_validation.py) | TensorFlow runtime shape validation for dynamic shapes |
+| [`tests/test_weighted.py`](tests/test_weighted.py) | Per-point weighted alignment: uniform equivalence, outlier downweighting, gradient stability, error handling, and batching |
 
 The suite runs across 4 frameworks x 4 precisions (float16, bfloat16, float32, float64), with MLX restricted to 3D. Hypothesis property tests use configurable example counts; CI runs the defaults.
 
