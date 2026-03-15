@@ -94,7 +94,8 @@ def kabsch(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
-        weights: Per-point weights, shape [..., N]. If None, uniform weights.
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
@@ -238,7 +239,8 @@ def kabsch_umeyama(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
-        weights: Per-point weights, shape [..., N]. If None, uniform weights.
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],

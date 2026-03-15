@@ -53,7 +53,8 @@ def horn(
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
-        weights: Per-point weights, shape [..., N]. If None, uniform weights.
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -229,7 +230,8 @@ def horn_with_scale(
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
-        weights: Per-point weights, shape [..., N]. If None, uniform weights.
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],

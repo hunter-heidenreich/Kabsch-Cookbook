@@ -16,14 +16,6 @@ def _call_algo(adapter, algo, P, Q, weights=None):
     return func(P, Q, weights=weights)
 
 
-def _get_rotation(res, algo):
-    return res[0]
-
-
-def _get_translation(res, algo):
-    return res[1]
-
-
 def _get_rmsd(res, algo):
     if algo in ALGORITHMS_WITH_SCALE:
         return res[3]
@@ -262,9 +254,10 @@ class TestWeightedRMSD:
 
 
 @pytest.mark.parametrize("adapter", frameworks, indirect=False)
+@pytest.mark.parametrize("algo", ALGORITHMS)
 class TestWeightValidation:
-    def test_negative_weight(self, adapter: FrameworkAdapter):
-        """Negative weights should raise ValueError."""
+    def test_negative_weight(self, adapter: FrameworkAdapter, algo):
+        """Negative weights should raise for all algorithms."""
         if not adapter.supports_dim(3):
             pytest.skip("Adapter does not support dim=3")
 
@@ -278,10 +271,10 @@ class TestWeightValidation:
         w_fw = adapter.convert_in_with_dtype(w_np, adapter.precision)
 
         with pytest.raises((ValueError, Exception)):
-            adapter.kabsch(P_fw, Q_fw, weights=w_fw)
+            _call_algo(adapter, algo, P_fw, Q_fw, weights=w_fw)
 
-    def test_all_zero_weights(self, adapter: FrameworkAdapter):
-        """All-zero weights should raise ValueError."""
+    def test_all_zero_weights(self, adapter: FrameworkAdapter, algo):
+        """All-zero weights should raise for all algorithms."""
         if not adapter.supports_dim(3):
             pytest.skip("Adapter does not support dim=3")
 
@@ -295,10 +288,10 @@ class TestWeightValidation:
         w_fw = adapter.convert_in_with_dtype(w_np, adapter.precision)
 
         with pytest.raises((ValueError, Exception)):
-            adapter.kabsch(P_fw, Q_fw, weights=w_fw)
+            _call_algo(adapter, algo, P_fw, Q_fw, weights=w_fw)
 
-    def test_wrong_shape_weight(self, adapter: FrameworkAdapter):
-        """Wrong-shaped weights should raise ValueError."""
+    def test_wrong_shape_weight(self, adapter: FrameworkAdapter, algo):
+        """Wrong-shaped weights should raise for all algorithms."""
         if not adapter.supports_dim(3):
             pytest.skip("Adapter does not support dim=3")
 
@@ -312,7 +305,7 @@ class TestWeightValidation:
         w_fw = adapter.convert_in_with_dtype(w_np, adapter.precision)
 
         with pytest.raises((ValueError, Exception)):
-            adapter.kabsch(P_fw, Q_fw, weights=w_fw)
+            _call_algo(adapter, algo, P_fw, Q_fw, weights=w_fw)
 
 
 # ---------------------------------------------------------------------------
