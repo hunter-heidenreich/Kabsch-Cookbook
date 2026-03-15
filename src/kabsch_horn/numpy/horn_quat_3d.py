@@ -78,13 +78,23 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
-    if orig_dtype in (np.float16,):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = np.float64 if np.float64 in (P.dtype, Q.dtype) else np.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (np.float16,):
         P = P.astype(np.float32)
         Q = Q.astype(np.float32)
 
@@ -163,13 +173,23 @@ def horn_with_scale(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
-    if orig_dtype in (np.float16,):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = np.float64 if np.float64 in (P.dtype, Q.dtype) else np.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (np.float16,):
         P = P.astype(np.float32)
         Q = Q.astype(np.float32)
 
@@ -229,6 +249,7 @@ def horn_with_scale(
     if orig_dtype in (np.float16,):
         R = R.astype(orig_dtype)
         t = t.astype(orig_dtype)
+        c = np.clip(c, a_min=None, a_max=np.finfo(orig_dtype).max)
         c = c.astype(orig_dtype)
         rmsd = rmsd.astype(orig_dtype)
     return R, t, c, rmsd

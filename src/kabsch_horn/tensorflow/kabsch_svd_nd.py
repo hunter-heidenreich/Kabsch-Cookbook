@@ -95,6 +95,13 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     tf.debugging.assert_equal(
         tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
     )
+    if P.shape.rank is not None and P.shape.rank < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
+    tf.debugging.assert_rank_at_least(
+        P, 2, message="Input must be at least 2D with shape [..., N, D]"
+    )
     if P.shape[-2] is not None and P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     tf.debugging.assert_greater_equal(
@@ -102,7 +109,13 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     )
 
     orig_dtype = P.dtype
-    if orig_dtype in (tf.float16, tf.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = tf.float64 if tf.float64 in (P.dtype, Q.dtype) else tf.float32
+        P = tf.cast(P, target)
+        Q = tf.cast(Q, target)
+        orig_dtype = target
+    elif orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
@@ -197,6 +210,13 @@ def kabsch_umeyama(
     tf.debugging.assert_equal(
         tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
     )
+    if P.shape.rank is not None and P.shape.rank < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
+    tf.debugging.assert_rank_at_least(
+        P, 2, message="Input must be at least 2D with shape [..., N, D]"
+    )
     if P.shape[-2] is not None and P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     tf.debugging.assert_greater_equal(
@@ -204,7 +224,13 @@ def kabsch_umeyama(
     )
 
     orig_dtype = P.dtype
-    if orig_dtype in (tf.float16, tf.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = tf.float64 if tf.float64 in (P.dtype, Q.dtype) else tf.float32
+        P = tf.cast(P, target)
+        Q = tf.cast(Q, target)
+        orig_dtype = target
+    elif orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
@@ -273,6 +299,8 @@ def kabsch_umeyama(
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)
         t = tf.cast(t, orig_dtype)
+        c_max = tf.constant(tf.dtypes.as_dtype(orig_dtype).max, dtype=c.dtype)
+        c = tf.minimum(c, c_max)
         c = tf.cast(c, orig_dtype)
         rmsd = tf.cast(rmsd, orig_dtype)
 

@@ -1,6 +1,6 @@
 import mlx.core as mx
 
-from ._utils import _DTYPE_EPS, _warn_if_float64
+from ._utils import _DTYPE_EPS, _float64_device_guard, _warn_if_float64
 
 
 @mx.custom_function
@@ -9,7 +9,22 @@ def safe_svd(A: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Computes SVD with a custom gradient to handle degenerate cases (zero singular values
     and coincident singular values) robustly for MLX.
     Uses mlx.core.linalg.svd
+
+    mx.eval(A) is called before the NaN check because MLX's lazy evaluation means
+    the array may not be materialized yet. Without it, mx.isnan would operate on
+    unevaluated data. This also means safe_svd is incompatible with mx.compile.
     """
+    # Force evaluation so we can inspect values; see docstring for rationale.
+    mx.eval(A)
+    if mx.any(mx.isnan(A)).item():
+        # Return NaN-filled tensors matching mx.linalg.svd's full SVD shapes:
+        # U: [..., M, M], S: [..., K], Vt: [..., N, N] where K = min(M, N)
+        M, N = A.shape[-2], A.shape[-1]
+        K = min(M, N)
+        nan_u = mx.full((*A.shape[:-1], M), float("nan"), dtype=A.dtype)
+        nan_s = mx.full((*A.shape[:-2], K), float("nan"), dtype=A.dtype)
+        nan_vt = mx.full((*A.shape[:-2], N, N), float("nan"), dtype=A.dtype)
+        return nan_u, nan_s, nan_vt
     U, S, Vt = mx.linalg.svd(A, stream=mx.cpu)
     return U, S, Vt
 
@@ -45,12 +60,15 @@ def safe_svd_bwd(primals, cotangents, outputs):
     S_sq = mx.square(S)
     S_sq_diff = mx.expand_dims(S_sq, -2) - mx.expand_dims(S_sq, -1)
 
-    # Add epsilon to diagonal before reciprocal
+    # Sign-preserving masking for near-zero off-diagonal differences,
+    # matching the pattern in PyTorch and safe_eigh_bwd.
     eps = _DTYPE_EPS.get(S_sq_diff.dtype, 1.1920929e-7)
     eye = mx.eye(S_sq_diff.shape[-1], dtype=S_sq_diff.dtype)
-    S_sq_diff_safe = mx.where(mx.abs(S_sq_diff) < eps, eye * eps, S_sq_diff)
+    mask = mx.abs(S_sq_diff) < eps
+    safe_diff = mx.where(mask, mx.where(S_sq_diff >= 0, eps, -eps), S_sq_diff)
+    safe_diff = mx.where(eye == 1, mx.ones_like(safe_diff), safe_diff)
 
-    F = 1.0 / S_sq_diff_safe
+    F = 1.0 / safe_diff
     F = mx.where(eye == 1, mx.zeros_like(F), F)
 
     J = F * (Ut_dU - Ut_dU.swapaxes(-1, -2))
@@ -58,11 +76,15 @@ def safe_svd_bwd(primals, cotangents, outputs):
 
     dS_mat = mx.expand_dims(dS, -1) * mx.eye(dS.shape[-1], dtype=dS.dtype)
 
-    # For PyTorch and tf we found term = dS + J@S + S@K or similar.
-    # We will test +/-
+    # SVD backward: dA = U @ (dS_diag + J @ S + S @ K) @ Vt
+    # The + signs here (vs - in PyTorch) are correct because S_sq_diff uses the
+    # opposite axis ordering for expand_dims, producing F with flipped sign.
     term = dS_mat + mx.matmul(J, S_mat) + mx.matmul(S_mat, K)
 
     dA = mx.matmul(U, mx.matmul(term, Vt))
+    # NaN safety net: when inputs trigger the NaN guard, outputs are all-NaN and
+    # the backward receives NaN cotangents. Zero them out to avoid propagating
+    # NaN gradients into the optimizer.
     dA = mx.where(mx.isnan(dA), mx.zeros_like(dA), dA)
 
     return (dA,)
@@ -96,6 +118,10 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
 
     if P.shape[-1] != 3:
         raise ValueError(
@@ -105,77 +131,85 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     _warn_if_float64(P, Q)
-    orig_dtype = P.dtype
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        P = P.astype(mx.float32)
-        Q = Q.astype(mx.float32)
 
-    centroid_P = mx.mean(P, axis=-2, keepdims=True)
-    centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+    with _float64_device_guard(P, Q):
+        orig_dtype = P.dtype
+        if P.dtype != Q.dtype:
+            # Mixed dtypes: promote to higher precision
+            target = mx.float64 if mx.float64 in (P.dtype, Q.dtype) else mx.float32
+            P = P.astype(target)
+            Q = Q.astype(target)
+            orig_dtype = target
+        elif orig_dtype in (mx.float16, mx.bfloat16):
+            P = P.astype(mx.float32)
+            Q = Q.astype(mx.float32)
 
-    p = P - centroid_P
-    q = Q - centroid_Q
+        centroid_P = mx.mean(P, axis=-2, keepdims=True)
+        centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
-    # mlx doesn't have transpose_b kwarg for all functions, we manually transpose
-    H = mx.matmul(p.swapaxes(-1, -2), q)
+        p = P - centroid_P
+        q = Q - centroid_Q
 
-    U, _S, Vt = safe_svd(H)
+        # mlx doesn't have transpose_b kwarg for all functions, we manually transpose
+        H = mx.matmul(p.swapaxes(-1, -2), q)
 
-    R = mx.matmul(Vt.swapaxes(-1, -2), U.swapaxes(-1, -2))
+        U, _S, Vt = safe_svd(H)
 
-    # MLX does not have det, compute det of 3x3 manually
-    # R is batched 3x3 or just 3x3
-    # A B C
-    # D E F
-    # G H I
-    # Det = A(EI - FH) - B(DI - FG) + C(DH - EG)
-    R00 = R[..., 0, 0]
-    R01 = R[..., 0, 1]
-    R02 = R[..., 0, 2]
-    R10 = R[..., 1, 0]
-    R11 = R[..., 1, 1]
-    R12 = R[..., 1, 2]
-    R20 = R[..., 2, 0]
-    R21 = R[..., 2, 1]
-    R22 = R[..., 2, 2]
+        R = mx.matmul(Vt.swapaxes(-1, -2), U.swapaxes(-1, -2))
 
-    d = (
-        R00 * (R11 * R22 - R12 * R21)
-        - R01 * (R10 * R22 - R12 * R20)
-        + R02 * (R10 * R21 - R11 * R20)
-    )
+        # MLX does not have det, compute det of 3x3 manually
+        # R is batched 3x3 or just 3x3
+        # A B C
+        # D E F
+        # G H I
+        # Det = A(EI - FH) - B(DI - FG) + C(DH - EG)
+        R00 = R[..., 0, 0]
+        R01 = R[..., 0, 1]
+        R02 = R[..., 0, 2]
+        R10 = R[..., 1, 0]
+        R11 = R[..., 1, 1]
+        R12 = R[..., 1, 2]
+        R20 = R[..., 2, 0]
+        R21 = R[..., 2, 1]
+        R22 = R[..., 2, 2]
 
-    # Correction
-    d_sign = mx.where(
-        d < 0, mx.array(-1.0, dtype=P.dtype), mx.array(1.0, dtype=P.dtype)
-    )
+        d = (
+            R00 * (R11 * R22 - R12 * R21)
+            - R01 * (R10 * R22 - R12 * R20)
+            + R02 * (R10 * R21 - R11 * R20)
+        )
 
-    D = P.shape[-1]
-    ones = mx.ones((*P.shape[:-2], D - 1), dtype=P.dtype)
-    diag = mx.concatenate([ones, mx.expand_dims(d_sign, -1)], axis=-1)
+        # Correction
+        d_sign = mx.where(
+            d < 0, mx.array(-1.0, dtype=P.dtype), mx.array(1.0, dtype=P.dtype)
+        )
 
-    # MLX diag only works for 1D. We need to construct batched diag
-    # Best way is broadcasting multiplication using expanded dims
-    I_reflect_V = Vt.swapaxes(-1, -2) * mx.expand_dims(diag, -2)
+        D = P.shape[-1]
+        ones = mx.ones((*P.shape[:-2], D - 1), dtype=P.dtype)
+        diag = mx.concatenate([ones, mx.expand_dims(d_sign, -1)], axis=-1)
 
-    R = mx.matmul(I_reflect_V, U.swapaxes(-1, -2))
+        # MLX diag only works for 1D. We need to construct batched diag
+        # Best way is broadcasting multiplication using expanded dims
+        I_reflect_V = Vt.swapaxes(-1, -2) * mx.expand_dims(diag, -2)
 
-    t = mx.squeeze(centroid_Q, -2) - mx.squeeze(
-        mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
-    )
+        R = mx.matmul(I_reflect_V, U.swapaxes(-1, -2))
 
-    P_aligned = mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
-    diff = P_aligned - Q
-    mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
-    rmsd = mx.sqrt(mse + _eps)
+        t = mx.squeeze(centroid_Q, -2) - mx.squeeze(
+            mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
+        )
 
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        R = R.astype(orig_dtype)
-        t = t.astype(orig_dtype)
-        rmsd = rmsd.astype(orig_dtype)
+        P_aligned = mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
+        diff = P_aligned - Q
+        mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+        rmsd = mx.sqrt(mse + _eps)
 
-    return R, t, rmsd
+        if orig_dtype in (mx.float16, mx.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+
+        return R, t, rmsd
 
 
 def kabsch_umeyama(
@@ -215,6 +249,10 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
 
     if P.shape[-1] != 3:
         raise ValueError(
@@ -224,78 +262,87 @@ def kabsch_umeyama(
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     _warn_if_float64(P, Q)
-    orig_dtype = P.dtype
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        P = P.astype(mx.float32)
-        Q = Q.astype(mx.float32)
 
-    centroid_P = mx.mean(P, axis=-2, keepdims=True)
-    centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+    with _float64_device_guard(P, Q):
+        orig_dtype = P.dtype
+        if P.dtype != Q.dtype:
+            # Mixed dtypes: promote to higher precision
+            target = mx.float64 if mx.float64 in (P.dtype, Q.dtype) else mx.float32
+            P = P.astype(target)
+            Q = Q.astype(target)
+            orig_dtype = target
+        elif orig_dtype in (mx.float16, mx.bfloat16):
+            P = P.astype(mx.float32)
+            Q = Q.astype(mx.float32)
 
-    p = P - centroid_P
-    q = Q - centroid_Q
+        centroid_P = mx.mean(P, axis=-2, keepdims=True)
+        centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
-    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
-    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
-    H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
+        p = P - centroid_P
+        q = Q - centroid_Q
 
-    U, S, Vt = safe_svd(H)
+        var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+        # Cross-covariance matrix (divided by N for Umeyama scale estimation)
+        H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
-    R = mx.matmul(Vt.swapaxes(-1, -2), U.swapaxes(-1, -2))
+        U, S, Vt = safe_svd(H)
 
-    # Compute det of 3x3 manually
-    R00 = R[..., 0, 0]
-    R01 = R[..., 0, 1]
-    R02 = R[..., 0, 2]
-    R10 = R[..., 1, 0]
-    R11 = R[..., 1, 1]
-    R12 = R[..., 1, 2]
-    R20 = R[..., 2, 0]
-    R21 = R[..., 2, 1]
-    R22 = R[..., 2, 2]
+        R = mx.matmul(Vt.swapaxes(-1, -2), U.swapaxes(-1, -2))
 
-    d = (
-        R00 * (R11 * R22 - R12 * R21)
-        - R01 * (R10 * R22 - R12 * R20)
-        + R02 * (R10 * R21 - R11 * R20)
-    )
-    d_sign = mx.where(
-        d < 0, mx.array(-1.0, dtype=P.dtype), mx.array(1.0, dtype=P.dtype)
-    )
+        # Compute det of 3x3 manually
+        R00 = R[..., 0, 0]
+        R01 = R[..., 0, 1]
+        R02 = R[..., 0, 2]
+        R10 = R[..., 1, 0]
+        R11 = R[..., 1, 1]
+        R12 = R[..., 1, 2]
+        R20 = R[..., 2, 0]
+        R21 = R[..., 2, 1]
+        R22 = R[..., 2, 2]
 
-    D = P.shape[-1]
-    ones = mx.ones((*P.shape[:-2], D - 1), dtype=P.dtype)
-    diag = mx.concatenate([ones, mx.expand_dims(d_sign, -1)], axis=-1)
+        d = (
+            R00 * (R11 * R22 - R12 * R21)
+            - R01 * (R10 * R22 - R12 * R20)
+            + R02 * (R10 * R21 - R11 * R20)
+        )
+        d_sign = mx.where(
+            d < 0, mx.array(-1.0, dtype=P.dtype), mx.array(1.0, dtype=P.dtype)
+        )
 
-    # MLX diag only works for 1D. We need to construct batched diag
-    # Best way is broadcasting multiplication using expanded dims
-    I_reflect_V = Vt.swapaxes(-1, -2) * mx.expand_dims(diag, -2)
+        D = P.shape[-1]
+        ones = mx.ones((*P.shape[:-2], D - 1), dtype=P.dtype)
+        diag = mx.concatenate([ones, mx.expand_dims(d_sign, -1)], axis=-1)
 
-    R = mx.matmul(I_reflect_V, U.swapaxes(-1, -2))
+        # MLX diag only works for 1D. We need to construct batched diag
+        # Best way is broadcasting multiplication using expanded dims
+        I_reflect_V = Vt.swapaxes(-1, -2) * mx.expand_dims(diag, -2)
 
-    S_corr = diag
+        R = mx.matmul(I_reflect_V, U.swapaxes(-1, -2))
 
-    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
-    c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, _eps)
+        S_corr = diag
 
-    centroid_P_rot = mx.matmul(centroid_P, R.swapaxes(-1, -2))
-    t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
-        centroid_P_rot, -2
-    )
+        _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+        c = mx.sum(S * S_corr, axis=-1) / mx.maximum(var_P, _eps)
 
-    c_exp = mx.expand_dims(mx.expand_dims(c, -1), -1)
-    P_aligned = c_exp * mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
-    diff = P_aligned - Q
-    mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mse + _eps)
+        centroid_P_rot = mx.matmul(centroid_P, R.swapaxes(-1, -2))
+        t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
+            centroid_P_rot, -2
+        )
 
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        R = R.astype(orig_dtype)
-        t = t.astype(orig_dtype)
-        c = c.astype(orig_dtype)
-        rmsd = rmsd.astype(orig_dtype)
+        c_exp = mx.expand_dims(mx.expand_dims(c, -1), -1)
+        P_aligned = c_exp * mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
+        diff = P_aligned - Q
+        mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        rmsd = mx.sqrt(mse + _eps)
 
-    return R, t, c, rmsd
+        if orig_dtype in (mx.float16, mx.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            c = mx.minimum(c, mx.array(mx.finfo(orig_dtype).max, dtype=c.dtype))
+            c = c.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+
+        return R, t, c, rmsd
 
 
 def kabsch_rmsd(P: mx.array, Q: mx.array) -> mx.array:
