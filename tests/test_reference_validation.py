@@ -95,8 +95,9 @@ class TestReferenceValidation:
         R_ref = _reference_kabsch_3d(P_np, Q_np)
         R_ours, _, _, _ = kabsch_np.kabsch_umeyama(P_np, Q_np)
 
-        # Cross-library: our SVD-based rotation vs rmsd package's LAPACK SVD
-        np.testing.assert_allclose(R_ours, R_ref, atol=1e-5)
+        # Cross-library: our SVD-based rotation vs rmsd package's LAPACK SVD;
+        # both float64 on well-conditioned 20x3 clouds
+        np.testing.assert_allclose(R_ours, R_ref, atol=1e-8)
 
     @pytest.mark.parametrize("seed", _SEEDS)
     def test_rmsd_value_matches_rmsd_package(self, seed: int) -> None:
@@ -111,5 +112,6 @@ class TestReferenceValidation:
 
         _, _, rmsd_ours = kabsch_np.kabsch(P_np, Q_np)
 
-        # Cross-library: our RMSD vs rmsd package's kabsch_rmsd
-        assert float(rmsd_ours) == pytest.approx(float(rmsd_ref), abs=1e-5)
+        # Cross-library: our RMSD vs rmsd package's kabsch_rmsd;
+        # both float64 on well-conditioned 20x3 clouds
+        assert float(rmsd_ours) == pytest.approx(float(rmsd_ref), abs=1e-8)
