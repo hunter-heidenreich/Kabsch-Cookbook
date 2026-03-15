@@ -24,8 +24,8 @@ All frameworks share the same function signatures and return types. Pick the pag
 
 **RMSD loss functions** (autodiff frameworks only):
 
-- `kabsch_rmsd(P, Q)` returns RMSD scalar(s) with stable gradients
-- `kabsch_umeyama_rmsd(P, Q)` returns RMSD scalar(s) with stable gradients
+- `kabsch_rmsd(P, Q)` returns RMSD `[...]` with stable gradients
+- `kabsch_umeyama_rmsd(P, Q)` returns RMSD `[...]` with stable gradients
 
 ## Framework pages
 
