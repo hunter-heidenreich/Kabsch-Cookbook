@@ -29,11 +29,6 @@ _NUMPY_SETTINGS = settings(
     suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
-_NUMPY_FILTER_SETTINGS = settings(
-    max_examples=50 if _FAST else 200,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-    deadline=None,
-)
 
 
 class TestRotationInvariants:
@@ -345,26 +340,26 @@ class TestAlignmentInvariants:
         _, _, rmsd_shifted = kabsch_np.kabsch(P_np @ S.T + u, Q_np @ S.T + u)
         np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-6)
 
-    @_NUMPY_FILTER_SETTINGS
+    @_NUMPY_SETTINGS
     @given(_paired_with_shift())
     def test_r_invariant_to_translation(self, PQdv: tuple) -> None:
         """Rotation R is unchanged when both P and Q are shifted by the same vector."""
         P_np, Q_np, _dim, v = PQdv
         H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
         sv_H = np.linalg.svd(H, compute_uv=False)
-        assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
+        assume(sv_H[-1] > 1e-3)  # rotation is unique only when H is well-conditioned
         R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
         R2, _, _ = kabsch_np.kabsch(P_np + v, Q_np + v)
         np.testing.assert_allclose(R1, R2, atol=1e-6)
 
-    @_NUMPY_FILTER_SETTINGS
+    @_NUMPY_SETTINGS
     @given(_paired_clouds_nd_composite(), st.floats(0.1, 10.0))
     def test_r_invariant_to_uniform_scale(self, PQ: tuple, c: float) -> None:
         """Rotation R is unchanged when both P and Q are scaled by the same scalar."""
         P_np, Q_np, _ = PQ
         H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
         sv_H = np.linalg.svd(H, compute_uv=False)
-        assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
+        assume(sv_H[-1] > 1e-3)  # rotation is unique only when H is well-conditioned
         R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
         R2, _, _ = kabsch_np.kabsch(P_np * c, Q_np * c)
         np.testing.assert_allclose(R1, R2, atol=1e-6)

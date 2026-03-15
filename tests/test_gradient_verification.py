@@ -17,7 +17,7 @@ from utils import compute_numeric_grad
 
 _FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
 _MAX_EXAMPLES_FD = 20 if _FAST else 100
-_MAX_EXAMPLES_DEGEN = 10 if _FAST else 40
+_MAX_EXAMPLES_DEGEN = 15 if _FAST else 40
 
 
 class TestGradientVerification:
