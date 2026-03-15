@@ -9,9 +9,16 @@ def safe_svd(A: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Computes SVD with a custom gradient to handle degenerate cases (zero singular values
     and coincident singular values) robustly for MLX.
     Uses mlx.core.linalg.svd
+
+    mx.eval(A) is called before the NaN check because MLX's lazy evaluation means
+    the array may not be materialized yet. Without it, mx.isnan would operate on
+    unevaluated data. This also means safe_svd is incompatible with mx.compile.
     """
+    # Force evaluation so we can inspect values; see docstring for rationale.
     mx.eval(A)
     if mx.any(mx.isnan(A)).item():
+        # Return NaN-filled tensors matching mx.linalg.svd's full SVD shapes:
+        # U: [..., M, M], S: [..., K], Vt: [..., N, N] where K = min(M, N)
         M, N = A.shape[-2], A.shape[-1]
         K = min(M, N)
         nan_u = mx.full((*A.shape[:-1], M), float("nan"), dtype=A.dtype)
@@ -69,11 +76,15 @@ def safe_svd_bwd(primals, cotangents, outputs):
 
     dS_mat = mx.expand_dims(dS, -1) * mx.eye(dS.shape[-1], dtype=dS.dtype)
 
-    # For PyTorch and tf we found term = dS + J@S + S@K or similar.
-    # We will test +/-
+    # SVD backward: dA = U @ (dS_diag + J @ S + S @ K) @ Vt
+    # The + signs here (vs - in PyTorch) are correct because S_sq_diff uses the
+    # opposite axis ordering for expand_dims, producing F with flipped sign.
     term = dS_mat + mx.matmul(J, S_mat) + mx.matmul(S_mat, K)
 
     dA = mx.matmul(U, mx.matmul(term, Vt))
+    # NaN safety net: when inputs trigger the NaN guard, outputs are all-NaN and
+    # the backward receives NaN cotangents. Zero them out to avoid propagating
+    # NaN gradients into the optimizer.
     dA = mx.where(mx.isnan(dA), mx.zeros_like(dA), dA)
 
     return (dA,)

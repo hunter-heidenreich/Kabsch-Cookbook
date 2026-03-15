@@ -476,31 +476,24 @@ try:
             return ret
 
         def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
             return kabsch_mlx.kabsch(P, Q)
 
         def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
             return kabsch_mlx.kabsch_umeyama(P, Q)
 
         def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
             return kabsch_mlx.horn(P, Q)
 
         def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
             return kabsch_mlx.horn_with_scale(P, Q)
 
         def kabsch_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
-            self._set_device()
             return kabsch_mlx.kabsch_rmsd(P, Q)
 
         def kabsch_umeyama_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
-            self._set_device()
             return kabsch_mlx.kabsch_umeyama_rmsd(P, Q)
 
         def is_nan(self, tensor: mx.array) -> bool:
-            self._set_device()
             return mx.any(mx.isnan(tensor)).item()
 
         def get_grad(
@@ -511,7 +504,6 @@ try:
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
-            self._set_device()
 
             def loss_fn(P_inner, Q_inner):
                 res = func(P_inner, Q_inner)

@@ -5,11 +5,16 @@ from ._utils import _DTYPE_EPS, _float64_device_guard, _warn_if_float64
 
 @mx.custom_function
 def safe_eigh_fwd(A: mx.array) -> tuple[mx.array, mx.array]:
+    # Force evaluation so we can inspect for NaN; this breaks lazy fusion and
+    # mx.compile compatibility, but is required to prevent mx.linalg.eigh from
+    # fatally aborting the process on NaN inputs.
     mx.eval(A)
     if mx.any(mx.isnan(A)).item():
+        # Return NaN-filled tensors matching mx.linalg.eigh shapes:
+        # L: [..., n], V: [..., n, n]
         n = A.shape[-1]
         nan_l = mx.full((*A.shape[:-2], n), float("nan"), dtype=A.dtype)
-        nan_v = mx.full_like(A, float("nan"))
+        nan_v = mx.full(A.shape, float("nan"), dtype=A.dtype)
         return nan_l, nan_v
     L, V = mx.linalg.eigh(A, stream=mx.cpu)
     return L, V

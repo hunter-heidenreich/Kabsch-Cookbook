@@ -31,10 +31,12 @@ def _warn_if_float64(P: mx.array, Q: mx.array, stacklevel: int = 3) -> None:
 
 
 @contextmanager
-def _float64_device_guard(*tensors):
+def _float64_device_guard(*tensors: mx.array):
     """Temporarily set the default device to CPU if any tensor is float64.
 
-    Restores the original default device on exit.
+    Restores the original default device on exit. Note: mx.set_default_device
+    is process-global, so this guard is not thread-safe. This is acceptable
+    for typical single-threaded MLX usage.
     """
     needs_cpu = any(t.dtype == mx.float64 for t in tensors)
     if needs_cpu:
