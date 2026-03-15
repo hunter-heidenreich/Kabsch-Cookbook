@@ -57,11 +57,24 @@ def safe_svd_bwd(primals, cotangents, outputs):
     dV = dVt.swapaxes(-1, -2)
     Vt_dV = mx.matmul(Vt, dV)
 
+    # SVD backward-pass sign convention (MLX)
+    # -------------------------------------
+    # mx.linalg.svd returns (U, S, Vt) with A = U @ diag(S) @ Vt.
+    #
+    # The F matrix is F_ij = 1 / (S_j^2 - S_i^2), computed as:
+    #   S_sq_diff = expand_dims(-2) - expand_dims(-1)   (col - row)
+    #
+    # This is the transposed axis ordering relative to PyTorch/JAX,
+    # which negates F. To compensate, the gradient formula uses + signs:
+    #   dA = U @ (diag(dS) + J @ S + S @ K) @ Vt
+    #
+    # Both forms are equivalent -- see Townsend (2016),
+    # "Differentiating the Singular Value Decomposition".
+
     S_sq = mx.square(S)
     S_sq_diff = mx.expand_dims(S_sq, -2) - mx.expand_dims(S_sq, -1)
 
-    # Sign-preserving masking for near-zero off-diagonal differences,
-    # matching the pattern in PyTorch and safe_eigh_bwd.
+    # Sign-preserving masking for near-zero off-diagonal differences.
     eps = _DTYPE_EPS.get(S_sq_diff.dtype, 1.1920929e-7)
     eye = mx.eye(S_sq_diff.shape[-1], dtype=S_sq_diff.dtype)
     mask = mx.abs(S_sq_diff) < eps
@@ -76,9 +89,6 @@ def safe_svd_bwd(primals, cotangents, outputs):
 
     dS_mat = mx.expand_dims(dS, -1) * mx.eye(dS.shape[-1], dtype=dS.dtype)
 
-    # SVD backward: dA = U @ (dS_diag + J @ S + S @ K) @ Vt
-    # The + signs here (vs - in PyTorch) are correct because S_sq_diff uses the
-    # opposite axis ordering for expand_dims, producing F with flipped sign.
     term = dS_mat + mx.matmul(J, S_mat) + mx.matmul(S_mat, K)
 
     dA = mx.matmul(U, mx.matmul(term, Vt))

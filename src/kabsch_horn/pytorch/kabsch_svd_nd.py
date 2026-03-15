@@ -46,9 +46,20 @@ class SafeSVD(torch.autograd.Function):
         U, S, Vh = ctx.saved_tensors
         eps = torch.finfo(S.dtype).eps
 
-        # Backward pass of SVD for real matrices:
-        # A = U S V^T
-        # dA = U (diag(dS) - J S - S K) V^T
+        # SVD backward-pass sign convention (PyTorch)
+        # ----------------------------------------
+        # torch.linalg.svd returns (U, S, Vh) with A = U @ diag(S) @ Vh.
+        #
+        # The F matrix is F_ij = 1 / (S_i^2 - S_j^2), computed as:
+        #   D = S_sq.unsqueeze(-1) - S_sq.unsqueeze(-2)   (row - col)
+        #
+        # With this ordering, the gradient formula is:
+        #   dA = U @ (diag(dS) - J @ S - S @ K) @ Vh
+        #
+        # TensorFlow and MLX use the transposed axis ordering for D
+        # (col - row), which negates F and flips the formula to +J, +K.
+        # Both forms are equivalent -- see Townsend (2016),
+        # "Differentiating the Singular Value Decomposition".
 
         # Replace None gradients with zeros
         grad_U = torch.zeros_like(U) if grad_U is None else grad_U
