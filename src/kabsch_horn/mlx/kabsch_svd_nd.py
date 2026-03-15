@@ -100,7 +100,9 @@ def safe_svd_bwd(primals, cotangents, outputs):
     return (dA,)
 
 
-def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
+def kabsch(
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
+) -> tuple[mx.array, mx.array, mx.array]:
     """
     Computes the optimal rotation and translation to align P to Q.
 
@@ -109,6 +111,7 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. If None, uniform weights are used.
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -140,6 +143,19 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        mx.eval(weights)
+        if mx.any(weights < 0).item():
+            raise ValueError("weights must be non-negative")
+        if not mx.all(mx.sum(weights, axis=-1) > 0).item():
+            raise ValueError("weights must sum to a positive value")
+
     _warn_if_float64(P, Q)
 
     with _float64_device_guard(P, Q):
@@ -154,14 +170,27 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
             P = P.astype(mx.float32)
             Q = Q.astype(mx.float32)
 
-        centroid_P = mx.mean(P, axis=-2, keepdims=True)
-        centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+        if weights is not None:
+            weights = weights.astype(P.dtype)
+
+        if weights is not None:
+            w = mx.expand_dims(weights, -1)  # [..., N, 1]
+            w_sum = mx.sum(weights, axis=-1)  # [...]
+            w_sum_exp = mx.expand_dims(mx.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+            centroid_P = mx.sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+            centroid_Q = mx.sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+        else:
+            centroid_P = mx.mean(P, axis=-2, keepdims=True)
+            centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
         p = P - centroid_P
         q = Q - centroid_Q
 
         # mlx doesn't have transpose_b kwarg for all functions, we manually transpose
-        H = mx.matmul(p.swapaxes(-1, -2), q)
+        if weights is not None:
+            H = mx.matmul((w * p).swapaxes(-1, -2), q)
+        else:
+            H = mx.matmul(p.swapaxes(-1, -2), q)
 
         U, _S, Vt = safe_svd(H)
 
@@ -210,7 +239,11 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
         P_aligned = mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
         diff = P_aligned - Q
-        mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        if weights is not None:
+            residual_sq = mx.sum(mx.square(diff), axis=-1)
+            mse = mx.sum(weights * residual_sq, axis=-1) / w_sum
+        else:
+            mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
         _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
         rmsd = mx.sqrt(mse + _eps)
 
@@ -223,7 +256,7 @@ def kabsch(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
 
 def kabsch_umeyama(
-    P: mx.array, Q: mx.array
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
 ) -> tuple[mx.array, mx.array, mx.array, mx.array]:
     """
     Computes the optimal rotation, translation, and scale to align P to Q
@@ -235,6 +268,7 @@ def kabsch_umeyama(
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. If None, uniform weights are used.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
@@ -271,6 +305,19 @@ def kabsch_umeyama(
         )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        mx.eval(weights)
+        if mx.any(weights < 0).item():
+            raise ValueError("weights must be non-negative")
+        if not mx.all(mx.sum(weights, axis=-1) > 0).item():
+            raise ValueError("weights must sum to a positive value")
+
     _warn_if_float64(P, Q)
 
     with _float64_device_guard(P, Q):
@@ -285,15 +332,30 @@ def kabsch_umeyama(
             P = P.astype(mx.float32)
             Q = Q.astype(mx.float32)
 
-        centroid_P = mx.mean(P, axis=-2, keepdims=True)
-        centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+        if weights is not None:
+            weights = weights.astype(P.dtype)
+
+        if weights is not None:
+            w = mx.expand_dims(weights, -1)  # [..., N, 1]
+            w_sum = mx.sum(weights, axis=-1)  # [...]
+            w_sum_exp = mx.expand_dims(mx.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+            centroid_P = mx.sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+            centroid_Q = mx.sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+        else:
+            centroid_P = mx.mean(P, axis=-2, keepdims=True)
+            centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
         p = P - centroid_P
         q = Q - centroid_Q
 
-        var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
-        # Cross-covariance matrix (divided by N for Umeyama scale estimation)
-        H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
+        if weights is not None:
+            var_P = mx.sum(weights * mx.sum(mx.square(p), axis=-1), axis=-1) / w_sum
+            # Cross-covariance matrix (divided by w_sum for Umeyama scale estimation)
+            H = mx.matmul((w * p).swapaxes(-1, -2), q) / w_sum_exp
+        else:
+            var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+            # Cross-covariance matrix (divided by N for Umeyama scale estimation)
+            H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
         U, S, Vt = safe_svd(H)
 
@@ -342,7 +404,11 @@ def kabsch_umeyama(
         c_exp = mx.expand_dims(mx.expand_dims(c, -1), -1)
         P_aligned = c_exp * mx.matmul(P, R.swapaxes(-1, -2)) + mx.expand_dims(t, -2)
         diff = P_aligned - Q
-        mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        if weights is not None:
+            residual_sq = mx.sum(mx.square(diff), axis=-1)
+            mse = mx.sum(weights * residual_sq, axis=-1) / w_sum
+        else:
+            mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
         rmsd = mx.sqrt(mse + _eps)
 
         if orig_dtype in (mx.float16, mx.bfloat16):
@@ -355,13 +421,15 @@ def kabsch_umeyama(
         return R, t, c, rmsd
 
 
-def kabsch_rmsd(P: mx.array, Q: mx.array) -> mx.array:
+def kabsch_rmsd(P: mx.array, Q: mx.array, weights: mx.array | None = None) -> mx.array:
     """Computes RMSD after Kabsch alignment. Gradient-safe training loss."""
-    _R, _t, rmsd = kabsch(P, Q)
+    _R, _t, rmsd = kabsch(P, Q, weights=weights)
     return rmsd
 
 
-def kabsch_umeyama_rmsd(P: mx.array, Q: mx.array) -> mx.array:
+def kabsch_umeyama_rmsd(
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
+) -> mx.array:
     """Computes RMSD after Kabsch-Umeyama alignment. Gradient-safe training loss."""
-    _R, _t, _c, rmsd = kabsch_umeyama(P, Q)
+    _R, _t, _c, rmsd = kabsch_umeyama(P, Q, weights=weights)
     return rmsd

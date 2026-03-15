@@ -53,7 +53,7 @@ class SafeEigh(torch.autograd.Function):
 
 
 def horn(
-    P: torch.Tensor, Q: torch.Tensor
+    P: torch.Tensor, Q: torch.Tensor, weights: torch.Tensor | None = None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes optimal rotation and translation to align P to Q using Horn's quaternion
@@ -71,6 +71,18 @@ def horn(
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if torch.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not torch.all(torch.sum(weights, dim=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -82,25 +94,41 @@ def horn(
         P = P.to(torch.float32)
         Q = Q.to(torch.float32)
 
+    if weights is not None:
+        weights = weights.to(P.dtype)
+
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
+        if weights is not None:
+            weights = weights.unsqueeze(0)
 
     orig_shape = P.shape
     N_pts = orig_shape[-2]
     batch_dims = orig_shape[:-2]
     P = P.reshape(-1, N_pts, 3)
     Q = Q.reshape(-1, N_pts, 3)
+    if weights is not None:
+        weights = weights.reshape(-1, N_pts)
 
     # 1. Compute Centers and 3x3 Cross-Covariance
-    centroid_P = P.mean(dim=1, keepdim=True)
-    centroid_Q = Q.mean(dim=1, keepdim=True)
+    if weights is not None:
+        w = weights.unsqueeze(-1)  # BxNx1
+        w_sum = torch.sum(weights, dim=-1)  # B
+        centroid_P = torch.sum(w * P, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+        centroid_Q = torch.sum(w * Q, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+    else:
+        centroid_P = P.mean(dim=1, keepdim=True)
+        centroid_Q = Q.mean(dim=1, keepdim=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    H = torch.matmul(p.transpose(1, 2), q)
+    if weights is not None:
+        H = torch.matmul((w * p).transpose(1, 2), q)
+    else:
+        H = torch.matmul(p.transpose(1, 2), q)
 
     # 2. Construct the 4x4 Symmetric Matrix N
     S = H + H.transpose(-1, -2)
@@ -165,7 +193,11 @@ def horn(
     # RMSD
     aligned = torch.matmul(p, R.transpose(1, 2))
     _eps = torch.finfo(P.dtype).eps
-    mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts
+    if weights is not None:
+        residual_sq = torch.sum(torch.square(aligned - q), dim=-1)  # BxN
+        mse = torch.sum(weights * residual_sq, dim=-1) / w_sum  # B
+    else:
+        mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / N_pts
     rmsd = torch.sqrt(mse + _eps)
 
     if is_single:
@@ -187,7 +219,7 @@ def horn(
 
 
 def horn_with_scale(
-    P: torch.Tensor, Q: torch.Tensor
+    P: torch.Tensor, Q: torch.Tensor, weights: torch.Tensor | None = None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes optimal rotation, translation, and scale using Horn's method.
@@ -204,6 +236,18 @@ def horn_with_scale(
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if torch.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not torch.all(torch.sum(weights, dim=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -215,27 +259,42 @@ def horn_with_scale(
         P = P.to(torch.float32)
         Q = Q.to(torch.float32)
 
+    if weights is not None:
+        weights = weights.to(P.dtype)
+
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
+        if weights is not None:
+            weights = weights.unsqueeze(0)
 
     orig_shape = P.shape
     N_pts = orig_shape[-2]
     batch_dims = orig_shape[:-2]
     P = P.reshape(-1, N_pts, 3)
     Q = Q.reshape(-1, N_pts, 3)
+    if weights is not None:
+        weights = weights.reshape(-1, N_pts)
 
-    centroid_P = P.mean(dim=1, keepdim=True)
-    centroid_Q = Q.mean(dim=1, keepdim=True)
+    if weights is not None:
+        w = weights.unsqueeze(-1)  # BxNx1
+        w_sum = torch.sum(weights, dim=-1)  # B
+        centroid_P = torch.sum(w * P, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+        centroid_Q = torch.sum(w * Q, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+    else:
+        centroid_P = P.mean(dim=1, keepdim=True)
+        centroid_Q = Q.mean(dim=1, keepdim=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = torch.sum(torch.square(p), dim=(1, 2)) / N_pts
-
-    # Cross-covariance matrix
-    H = torch.matmul(p.transpose(1, 2), q) / N_pts
+    if weights is not None:
+        var_P = torch.sum(weights * torch.sum(torch.square(p), dim=-1), dim=-1) / w_sum
+        H = torch.matmul((w * p).transpose(1, 2), q) / w_sum.view(-1, 1, 1)
+    else:
+        var_P = torch.sum(torch.square(p), dim=(1, 2)) / N_pts
+        H = torch.matmul(p.transpose(1, 2), q) / N_pts
 
     # S
     S = H + H.transpose(-1, -2)
@@ -299,7 +358,11 @@ def horn_with_scale(
         P, R.transpose(1, 2)
     ) + t.unsqueeze(1)
     diff = aligned_P - Q
-    mse = torch.sum(torch.square(diff), dim=(1, 2)) / N_pts
+    if weights is not None:
+        residual_sq = torch.sum(torch.square(diff), dim=-1)  # BxN
+        mse = torch.sum(weights * residual_sq, dim=-1) / w_sum  # B
+    else:
+        mse = torch.sum(torch.square(diff), dim=(1, 2)) / N_pts
     rmsd = torch.sqrt(mse + _eps)
 
     if is_single:

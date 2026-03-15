@@ -53,7 +53,9 @@ def safe_eigh_bwd(primals, cotangents, outputs):
     return (dA,)
 
 
-def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
+def horn(
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
+) -> tuple[mx.array, mx.array, mx.array]:
     """
     Computes optimal rotation and translation to align P to Q using Horn's
     quaternion method.
@@ -64,6 +66,7 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Args:
         P: Source points as mx.array, shape [..., N, 3].
         Q: Target points as mx.array, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. If None, uniform weights are used.
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -77,6 +80,19 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         raise ValueError(
             f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
         )
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        mx.eval(weights)
+        if mx.any(weights < 0).item():
+            raise ValueError("weights must be non-negative")
+        if not mx.all(mx.sum(weights, axis=-1) > 0).item():
+            raise ValueError("weights must sum to a positive value")
+
     _warn_if_float64(P, Q)
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
@@ -95,13 +111,26 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
             P = P.astype(mx.float32)
             Q = Q.astype(mx.float32)
 
-        centroid_P = mx.mean(P, axis=-2, keepdims=True)
-        centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+        if weights is not None:
+            weights = weights.astype(P.dtype)
+
+        if weights is not None:
+            w = mx.expand_dims(weights, -1)  # [..., N, 1]
+            w_sum = mx.sum(weights, axis=-1)  # [...]
+            w_sum_exp = mx.expand_dims(mx.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+            centroid_P = mx.sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+            centroid_Q = mx.sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+        else:
+            centroid_P = mx.mean(P, axis=-2, keepdims=True)
+            centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
         p = P - centroid_P
         q = Q - centroid_Q
 
-        H = mx.matmul(p.swapaxes(-1, -2), q)
+        if weights is not None:
+            H = mx.matmul((w * p).swapaxes(-1, -2), q)
+        else:
+            H = mx.matmul(p.swapaxes(-1, -2), q)
 
         S = H + H.swapaxes(-1, -2)
         tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
@@ -163,7 +192,11 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         aligned = mx.matmul(p, R.swapaxes(-1, -2))
 
         diff = aligned - q
-        mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        if weights is not None:
+            residual_sq = mx.sum(mx.square(diff), axis=-1)
+            mse = mx.sum(weights * residual_sq, axis=-1) / w_sum
+        else:
+            mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
         _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
         rmsd = mx.sqrt(mse + _eps)
 
@@ -175,7 +208,7 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
 
 
 def horn_with_scale(
-    P: mx.array, Q: mx.array
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
 ) -> tuple[mx.array, mx.array, mx.array, mx.array]:
     """
     Computes optimal rotation, translation, and scale to align P to Q
@@ -186,6 +219,7 @@ def horn_with_scale(
     Args:
         P: Source points as mx.array, shape [..., N, 3].
         Q: Target points as mx.array, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. If None, uniform weights are used.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
@@ -200,6 +234,19 @@ def horn_with_scale(
         raise ValueError(
             f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
         )
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        mx.eval(weights)
+        if mx.any(weights < 0).item():
+            raise ValueError("weights must be non-negative")
+        if not mx.all(mx.sum(weights, axis=-1) > 0).item():
+            raise ValueError("weights must sum to a positive value")
+
     _warn_if_float64(P, Q)
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
@@ -218,15 +265,28 @@ def horn_with_scale(
             P = P.astype(mx.float32)
             Q = Q.astype(mx.float32)
 
-        centroid_P = mx.mean(P, axis=-2, keepdims=True)
-        centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+        if weights is not None:
+            weights = weights.astype(P.dtype)
+
+        if weights is not None:
+            w = mx.expand_dims(weights, -1)  # [..., N, 1]
+            w_sum = mx.sum(weights, axis=-1)  # [...]
+            w_sum_exp = mx.expand_dims(mx.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+            centroid_P = mx.sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+            centroid_Q = mx.sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+        else:
+            centroid_P = mx.mean(P, axis=-2, keepdims=True)
+            centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
         p = P - centroid_P
         q = Q - centroid_Q
 
-        var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
-
-        H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
+        if weights is not None:
+            var_P = mx.sum(weights * mx.sum(mx.square(p), axis=-1), axis=-1) / w_sum
+            H = mx.matmul((w * p).swapaxes(-1, -2), q) / w_sum_exp
+        else:
+            var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+            H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
         S = H + H.swapaxes(-1, -2)
         tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
@@ -293,7 +353,11 @@ def horn_with_scale(
             P, R.swapaxes(-1, -2)
         ) + mx.expand_dims(t, -2)
         diff = aligned_P - Q
-        mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        if weights is not None:
+            residual_sq = mx.sum(mx.square(diff), axis=-1)
+            mse = mx.sum(weights * residual_sq, axis=-1) / w_sum
+        else:
+            mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
         rmsd = mx.sqrt(mse + _eps)
 
         if orig_dtype in (mx.float16, mx.bfloat16):

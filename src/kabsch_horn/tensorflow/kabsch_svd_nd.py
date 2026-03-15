@@ -85,13 +85,16 @@ def safe_svd(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
     return (S, U, V), grad
 
 
-def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+def kabsch(
+    P: tf.Tensor, Q: tf.Tensor, weights: tf.Tensor | None = None
+) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     """
     Computes the optimal rotation and translation to align P to Q.
 
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. If None, uniform weights.
 
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
@@ -123,6 +126,22 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
         tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
     )
 
+    if weights is not None:
+        weights = tf.convert_to_tensor(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match"
+                f" P.shape[:-1] {P.shape[:-1]}"
+            )
+        weights = tf.cast(weights, P.dtype)
+        tf.debugging.assert_non_negative(
+            weights, message="weights must be non-negative"
+        )
+        tf.debugging.assert_positive(
+            tf.reduce_sum(weights, axis=-1),
+            message="weights must sum to a positive value",
+        )
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -134,15 +153,28 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
+    if weights is not None:
+        weights = tf.cast(weights, P.dtype)
+
     # Centering
-    centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
-    centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
+    if weights is not None:
+        w = tf.expand_dims(weights, -1)  # [..., N, 1]
+        w_sum = tf.reduce_sum(weights, axis=-1)  # [...]
+        w_sum_exp = tf.expand_dims(tf.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+        centroid_P = tf.reduce_sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+        centroid_Q = tf.reduce_sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+    else:
+        centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
+        centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    N = tf.cast(tf.shape(P)[-2], P.dtype)
-    H = tf.matmul(p, q, transpose_a=True) / N
+    if weights is not None:
+        H = tf.matmul(w * p, q, transpose_a=True) / w_sum_exp
+    else:
+        N = tf.cast(tf.shape(P)[-2], P.dtype)
+        H = tf.matmul(p, q, transpose_a=True) / N
 
     # SVD
     _S, U, V = safe_svd(H)
@@ -182,7 +214,11 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     P_aligned = tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
     _eps = np.finfo(P.dtype.as_numpy_dtype).eps
-    mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
+    if weights is not None:
+        residual_sq = tf.reduce_sum(tf.square(diff), axis=-1)  # [..., N]
+        mse = tf.reduce_sum(weights * residual_sq, axis=-1) / w_sum
+    else:
+        mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
     rmsd = tf.sqrt(mse + _eps)
 
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -194,7 +230,7 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
 
 
 def kabsch_umeyama(
-    P: tf.Tensor, Q: tf.Tensor
+    P: tf.Tensor, Q: tf.Tensor, weights: tf.Tensor | None = None
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     """
     Computes the optimal rotation, translation, and scale (Q ~ c * R @ P + t).
@@ -202,6 +238,7 @@ def kabsch_umeyama(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. If None, uniform weights.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
@@ -238,6 +275,22 @@ def kabsch_umeyama(
         tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
     )
 
+    if weights is not None:
+        weights = tf.convert_to_tensor(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match"
+                f" P.shape[:-1] {P.shape[:-1]}"
+            )
+        weights = tf.cast(weights, P.dtype)
+        tf.debugging.assert_non_negative(
+            weights, message="weights must be non-negative"
+        )
+        tf.debugging.assert_positive(
+            tf.reduce_sum(weights, axis=-1),
+            message="weights must sum to a positive value",
+        )
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -249,21 +302,38 @@ def kabsch_umeyama(
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
+    if weights is not None:
+        weights = tf.cast(weights, P.dtype)
+
     # Centering
-    centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
-    centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
+    if weights is not None:
+        w = tf.expand_dims(weights, -1)  # [..., N, 1]
+        w_sum = tf.reduce_sum(weights, axis=-1)  # [...]
+        w_sum_exp = tf.expand_dims(tf.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+        centroid_P = tf.reduce_sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+        centroid_Q = tf.reduce_sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+    else:
+        centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
+        centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
     # Variance of P
-    var_P = tf.reduce_sum(tf.square(p), axis=[-2, -1]) / tf.cast(
-        tf.shape(P)[-2], P.dtype
-    )
+    if weights is not None:
+        weighted_sq = weights * tf.reduce_sum(tf.square(p), axis=-1)
+        var_P = tf.reduce_sum(weighted_sq, axis=-1) / w_sum
+    else:
+        var_P = tf.reduce_sum(tf.square(p), axis=[-2, -1]) / tf.cast(
+            tf.shape(P)[-2], P.dtype
+        )
 
     # Cross-covariance matrix (divided by N for Umeyama scale estimation)
-    N = tf.cast(tf.shape(P)[-2], P.dtype)
-    H = tf.matmul(p, q, transpose_a=True) / N
+    if weights is not None:
+        H = tf.matmul(w * p, q, transpose_a=True) / w_sum_exp
+    else:
+        N = tf.cast(tf.shape(P)[-2], P.dtype)
+        H = tf.matmul(p, q, transpose_a=True) / N
 
     # SVD
     S, U, V_m = safe_svd(H)
@@ -308,7 +378,11 @@ def kabsch_umeyama(
     c_exp = tf.expand_dims(tf.expand_dims(c, -1), -1)
     P_aligned = c_exp * tf.matmul(P, R, transpose_b=True) + tf.expand_dims(t, -2)
     diff = P_aligned - Q
-    mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
+    if weights is not None:
+        residual_sq = tf.reduce_sum(tf.square(diff), axis=-1)  # [..., N]
+        mse = tf.reduce_sum(weights * residual_sq, axis=-1) / w_sum
+    else:
+        mse = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=-1), axis=-1)
     rmsd = tf.sqrt(mse + _eps)
 
     if orig_dtype in (tf.float16, tf.bfloat16):
@@ -322,13 +396,17 @@ def kabsch_umeyama(
     return R, t, c, rmsd
 
 
-def kabsch_rmsd(P: tf.Tensor, Q: tf.Tensor) -> tf.Tensor:
+def kabsch_rmsd(
+    P: tf.Tensor, Q: tf.Tensor, weights: tf.Tensor | None = None
+) -> tf.Tensor:
     """Computes RMSD after Kabsch alignment."""
-    _R, _t, rmsd = kabsch(P, Q)
+    _R, _t, rmsd = kabsch(P, Q, weights=weights)
     return rmsd
 
 
-def kabsch_umeyama_rmsd(P: tf.Tensor, Q: tf.Tensor) -> tf.Tensor:
+def kabsch_umeyama_rmsd(
+    P: tf.Tensor, Q: tf.Tensor, weights: tf.Tensor | None = None
+) -> tf.Tensor:
     """Computes RMSD after Kabsch-Umeyama alignment."""
-    _R, _t, _c, rmsd = kabsch_umeyama(P, Q)
+    _R, _t, _c, rmsd = kabsch_umeyama(P, Q, weights=weights)
     return rmsd

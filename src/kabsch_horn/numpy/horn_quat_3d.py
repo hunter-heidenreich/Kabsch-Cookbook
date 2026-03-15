@@ -60,7 +60,9 @@ def _quat_to_rotation(q_opt: np.ndarray) -> np.ndarray:
     )
 
 
-def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def horn(
+    P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes optimal rotation and translation to align P to Q using Horn's
     quaternion method.
@@ -70,6 +72,8 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -87,6 +91,18 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        weights = np.asarray(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if np.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not np.all(np.sum(weights, axis=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -98,10 +114,15 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
         P = P.astype(np.float32)
         Q = Q.astype(np.float32)
 
+    if weights is not None:
+        weights = weights.astype(P.dtype)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
+        if weights is not None:
+            weights = weights[np.newaxis, :]
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -109,14 +130,29 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
 
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
+    if weights is not None:
+        weights = np.reshape(weights, (-1, N))
 
-    centroid_P = np.mean(P, axis=1, keepdims=True)
-    centroid_Q = np.mean(Q, axis=1, keepdims=True)
+    if weights is not None:
+        w = weights[:, :, np.newaxis]  # BxNx1
+        w_sum = np.sum(weights, axis=-1)  # B
+        centroid_P = (
+            np.sum(w * P, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+        centroid_Q = (
+            np.sum(w * Q, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+    else:
+        centroid_P = np.mean(P, axis=1, keepdims=True)
+        centroid_Q = np.mean(Q, axis=1, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    H = np.matmul(p.transpose(0, 2, 1), q)
+    if weights is not None:
+        H = np.matmul((w * p).transpose(0, 2, 1), q)
+    else:
+        H = np.matmul(p.transpose(0, 2, 1), q)
 
     N_mat = _build_horn_matrix(H)
 
@@ -131,13 +167,12 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
     )
 
     aligned = np.matmul(p, R.transpose(0, 2, 1))
-    rmsd = np.sqrt(
-        np.clip(
-            np.sum(np.square(aligned - q), axis=(1, 2)) / N,
-            a_min=0.0,
-            a_max=None,
-        )
-    )
+    if weights is not None:
+        residual_sq = np.sum(np.square(aligned - q), axis=-1)  # BxN
+        mse = np.sum(weights * residual_sq, axis=-1) / w_sum  # B
+    else:
+        mse = np.sum(np.square(aligned - q), axis=(1, 2)) / N
+    rmsd = np.sqrt(np.clip(mse, a_min=0.0, a_max=None))
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -153,7 +188,7 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
 
 
 def horn_with_scale(
-    P: np.ndarray, Q: np.ndarray
+    P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes optimal rotation, translation, and scale to align P to Q
@@ -164,6 +199,8 @@ def horn_with_scale(
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
@@ -182,6 +219,18 @@ def horn_with_scale(
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        weights = np.asarray(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if np.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not np.all(np.sum(weights, axis=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -193,10 +242,15 @@ def horn_with_scale(
         P = P.astype(np.float32)
         Q = Q.astype(np.float32)
 
+    if weights is not None:
+        weights = weights.astype(P.dtype)
+
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
+        if weights is not None:
+            weights = weights[np.newaxis, :]
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -204,16 +258,31 @@ def horn_with_scale(
 
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
+    if weights is not None:
+        weights = np.reshape(weights, (-1, N))
 
-    centroid_P = np.mean(P, axis=1, keepdims=True)
-    centroid_Q = np.mean(Q, axis=1, keepdims=True)
+    if weights is not None:
+        w = weights[:, :, np.newaxis]  # BxNx1
+        w_sum = np.sum(weights, axis=-1)  # B
+        centroid_P = (
+            np.sum(w * P, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+        centroid_Q = (
+            np.sum(w * Q, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+    else:
+        centroid_P = np.mean(P, axis=1, keepdims=True)
+        centroid_Q = np.mean(Q, axis=1, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    var_P = np.sum(np.square(p), axis=(1, 2)) / N
-
-    H = np.matmul(p.transpose(0, 2, 1), q) / N
+    if weights is not None:
+        var_P = np.sum(weights * np.sum(np.square(p), axis=-1), axis=-1) / w_sum  # B
+        H = np.matmul((w * p).transpose(0, 2, 1), q) / w_sum[:, np.newaxis, np.newaxis]
+    else:
+        var_P = np.sum(np.square(p), axis=(1, 2)) / N
+        H = np.matmul(p.transpose(0, 2, 1), q) / N
 
     N_mat = _build_horn_matrix(H)
 
@@ -235,9 +304,12 @@ def horn_with_scale(
         + t[:, np.newaxis, :]
     )
     diff = aligned_P - Q
-    rmsd = np.sqrt(
-        np.clip(np.sum(np.square(diff), axis=(1, 2)) / N, a_min=0.0, a_max=None)
-    )
+    if weights is not None:
+        residual_sq = np.sum(np.square(diff), axis=-1)  # BxN
+        mse = np.sum(weights * residual_sq, axis=-1) / w_sum  # B
+    else:
+        mse = np.sum(np.square(diff), axis=(1, 2)) / N
+    rmsd = np.sqrt(np.clip(mse, a_min=0.0, a_max=None))
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
