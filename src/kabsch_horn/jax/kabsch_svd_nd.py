@@ -54,10 +54,25 @@ def _bwd(res, g):
 
     grad_Vh = mH(grad_V)
 
+    # SVD backward-pass sign convention (JAX)
+    # ------------------------------------
+    # jnp.linalg.svd returns (U, S, Vh) with A = U @ diag(S) @ Vh.
+    #
+    # The F matrix is F_ij = 1 / (S_i^2 - S_j^2), computed as:
+    #   D = S_sq[..., newaxis] - S_sq[..., newaxis, :]   (row - col)
+    #
+    # With this ordering, the gradient formula is:
+    #   dA = U @ (diag(dS) - J @ S - S @ K) @ Vh
+    #
+    # TensorFlow and MLX use the transposed axis ordering for D
+    # (col - row), which negates F and flips the formula to +J, +K.
+    # Both forms are equivalent -- see Townsend (2016),
+    # "Differentiating the Singular Value Decomposition".
+
     # 1. Square of S
     S_sq = jnp.square(S)  # BxD
 
-    # 2. D = S_sq - S_sq^T
+    # 2. D = S_i^2 - S_j^2 (row - col)
     D = S_sq[..., jnp.newaxis] - S_sq[..., jnp.newaxis, :]  # BxDxD
 
     # 3. Safe F
