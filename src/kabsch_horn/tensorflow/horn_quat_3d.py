@@ -310,6 +310,8 @@ def horn_with_scale(
     if orig_dtype in (tf.float16, tf.bfloat16):
         R = tf.cast(R, orig_dtype)
         t = tf.cast(t, orig_dtype)
+        c_max = tf.constant(tf.dtypes.as_dtype(orig_dtype).max, dtype=c.dtype)
+        c = tf.minimum(c, c_max)
         c = tf.cast(c, orig_dtype)
         rmsd = tf.cast(rmsd, orig_dtype)
     return R, t, c, rmsd
