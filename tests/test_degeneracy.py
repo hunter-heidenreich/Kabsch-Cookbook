@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
-from conftest import ALGORITHMS, ALGORITHMS_WITH_SCALE
+from conftest import ALGORITHMS, ALGORITHMS_3D_ONLY, ALGORITHMS_WITH_SCALE
 
 
 class TestDegeneracy:
@@ -41,20 +41,14 @@ class TestDegeneracy:
         # 10x: degenerate cross-covariance yields arbitrary SVD vectors;
         # fallback rotation needs slack
         assert np.allclose(R_res @ R_res.T, np.eye(dim), atol=adapter.atol * 10)
-        assert np.linalg.det(R_res) > 0
+        assert np.linalg.det(R_res) == pytest.approx(1.0, abs=adapter.atol * 10)
         assert np.isfinite(adapter.convert_out(res[-1]))  # rmsd
 
         if algo in ALGORITHMS_WITH_SCALE:
             c_res = float(adapter.convert_out(res[2]))
             assert np.isfinite(c_res)
 
-    @pytest.mark.parametrize(
-        "algo",
-        [
-            pytest.param("horn", id="horn"),
-            pytest.param("horn_with_scale", id="horn_with_scale"),
-        ],
-    )
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
     @pytest.mark.parametrize("adapter", frameworks)
     def test_collinear_inputs_return_valid_rotation(
         self,
@@ -73,19 +67,13 @@ class TestDegeneracy:
         # 10x: rank-deficient cross-covariance; fallback vectors accumulate
         # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
-        assert np.linalg.det(R_np) > 0
+        assert np.linalg.det(R_np) == pytest.approx(1.0, abs=adapter.atol * 10)
         # RMSD for identical clouds: centering cancellation error is O(eps * max_val)
         assert float(adapter.convert_out(res[-1])) == pytest.approx(
             0.0, abs=adapter.atol
         )
 
-    @pytest.mark.parametrize(
-        "algo",
-        [
-            pytest.param("horn", id="horn"),
-            pytest.param("horn_with_scale", id="horn_with_scale"),
-        ],
-    )
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
     @pytest.mark.parametrize("adapter", frameworks)
     def test_coplanar_inputs_return_valid_rotation(
         self,
@@ -105,19 +93,13 @@ class TestDegeneracy:
         # 10x: rank-deficient cross-covariance; fallback vectors accumulate
         # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
-        assert np.linalg.det(R_np) > 0
+        assert np.linalg.det(R_np) == pytest.approx(1.0, abs=adapter.atol * 10)
         # RMSD for identical clouds: centering cancellation error is O(eps * max_val)
         assert float(adapter.convert_out(res[-1])) == pytest.approx(
             0.0, abs=adapter.atol
         )
 
-    @pytest.mark.parametrize(
-        "algo",
-        [
-            pytest.param("horn", id="horn"),
-            pytest.param("horn_with_scale", id="horn_with_scale"),
-        ],
-    )
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
     @pytest.mark.parametrize("adapter", frameworks)
     def test_collinear_inputs_different_clouds_return_valid_rotation(
         self,
@@ -137,16 +119,10 @@ class TestDegeneracy:
         # 10x: rank-deficient cross-covariance; fallback vectors accumulate
         # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
-        assert np.linalg.det(R_np) > 0
+        assert np.linalg.det(R_np) == pytest.approx(1.0, abs=adapter.atol * 10)
         assert np.isfinite(float(adapter.convert_out(res[-1])))
 
-    @pytest.mark.parametrize(
-        "algo",
-        [
-            pytest.param("horn", id="horn"),
-            pytest.param("horn_with_scale", id="horn_with_scale"),
-        ],
-    )
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
     @pytest.mark.parametrize("adapter", frameworks)
     def test_coplanar_inputs_different_clouds_return_valid_rotation(
         self,
@@ -167,5 +143,5 @@ class TestDegeneracy:
         # 10x: rank-deficient cross-covariance; fallback vectors accumulate
         # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
-        assert np.linalg.det(R_np) > 0
+        assert np.linalg.det(R_np) == pytest.approx(1.0, abs=adapter.atol * 10)
         assert np.isfinite(float(adapter.convert_out(res[-1])))

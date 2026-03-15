@@ -183,6 +183,9 @@ def pytest_collection_modifyitems(session, config, items) -> None:
             if "dim" in params and "adapter" in params:
                 dim = params["dim"]
                 adapter = params["adapter"]
+                # Convention: tests that check rejection behaviour for non-3D
+                # inputs must include "non_3d" in their test name so they
+                # bypass this skip and actually run with the unsupported dim.
                 if not adapter.supports_dim(dim) and "non_3d" not in item.name:
                     continue
             # Skip 3D-only algorithms (Horn) for non-3D dims,
