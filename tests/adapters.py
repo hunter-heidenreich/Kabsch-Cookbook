@@ -449,8 +449,8 @@ try:
 
         @property
         def supports_nan_input(self) -> bool:
-            # MLX linalg.svd fatally aborts the process on NaN inputs
-            return False
+            # NaN inputs are caught before reaching linalg.svd/eigh
+            return True
 
         def convert_in(self, arr: np.ndarray) -> mx.array:
             self._set_device()
