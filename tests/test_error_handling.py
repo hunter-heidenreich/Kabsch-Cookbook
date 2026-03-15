@@ -186,6 +186,25 @@ class TestErrorHandling:
             func(P, Q)
 
 
+class TestRejects1DInput:
+    """1D array inputs must raise ValueError, not IndexError."""
+
+    @pytest.mark.parametrize("algo", ALGORITHMS)
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_1d_input_raises_value_error(
+        self, adapter: FrameworkAdapter, algo: str
+    ) -> None:
+        P_np = np.array([1.0, 2.0, 3.0])
+        Q_np = np.array([4.0, 5.0, 6.0])
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        with pytest.raises((ValueError, Exception), match=r"2D"):
+            func(P, Q)
+
+
 class TestNumpySinglePointRejection:
     """NumPy N=1 inputs must raise ValueError for all algorithms."""
 

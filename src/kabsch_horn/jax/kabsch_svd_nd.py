@@ -115,6 +115,10 @@ def kabsch(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
@@ -220,6 +224,10 @@ def kabsch_umeyama(
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
         )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
