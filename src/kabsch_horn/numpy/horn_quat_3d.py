@@ -78,6 +78,10 @@ def horn(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarr
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
@@ -168,6 +172,10 @@ def horn_with_scale(
     if P.shape != Q.shape:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
+        )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
         )
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")

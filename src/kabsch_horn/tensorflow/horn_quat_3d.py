@@ -66,6 +66,13 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     tf.debugging.assert_equal(
         tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
     )
+    if P.shape.rank is not None and P.shape.rank < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
+    tf.debugging.assert_rank_at_least(
+        P, 2, message="Input must be at least 2D with shape [..., N, D]"
+    )
     if P.shape[-1] is not None and P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     tf.debugging.assert_equal(
@@ -199,6 +206,13 @@ def horn_with_scale(
         )
     tf.debugging.assert_equal(
         tf.shape(P), tf.shape(Q), message="P and Q must have the same shape"
+    )
+    if P.shape.rank is not None and P.shape.rank < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
+    tf.debugging.assert_rank_at_least(
+        P, 2, message="Input must be at least 2D with shape [..., N, D]"
     )
     if P.shape[-1] is not None and P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
