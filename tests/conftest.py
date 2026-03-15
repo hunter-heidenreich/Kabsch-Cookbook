@@ -178,6 +178,15 @@ def pytest_collection_modifyitems(session, config, items) -> None:
         # Check if the test has a callspec (i.e. is parametrized)
         if hasattr(item, "callspec"):
             params = item.callspec.params
+            # Skip gradient-only test modules for forward-only adapters
+            if "adapter" in params and not params["adapter"].supports_grad:
+                module_name = item.module.__name__
+                if module_name in {
+                    "test_differentiability_traps",
+                    "test_gradient_verification",
+                    "test_rmsd_wrappers",
+                }:
+                    continue
             # Skip MLX on unsupported dims,
             # unless the test explicitly checks rejection behaviour.
             if "dim" in params and "adapter" in params:
