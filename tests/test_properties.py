@@ -140,10 +140,10 @@ class TestCrossAlgorithmConsistency:
         R_k, t_k, rmsd_k = kabsch_np.kabsch(P_np, Q_np)
         R_h, t_h, rmsd_h = kabsch_np.horn(P_np, Q_np)
         # Cross-algorithm: SVD-based kabsch vs eigen-based horn may diverge by
-        # O(eps * cond(H)^2) due to different numerical paths
-        np.testing.assert_allclose(R_k, R_h, atol=1e-5)
-        np.testing.assert_allclose(t_k, t_h, atol=1e-5)
-        np.testing.assert_allclose(float(rmsd_k), float(rmsd_h), atol=1e-5)
+        # O(eps * cond(H)^2); with sv[-1] > 1e-3, cond < 1000 so error < 1e-9
+        np.testing.assert_allclose(R_k, R_h, atol=1e-8)
+        np.testing.assert_allclose(t_k, t_h, atol=1e-8)
+        np.testing.assert_allclose(float(rmsd_k), float(rmsd_h), atol=1e-8)
 
     @_NUMPY_SETTINGS
     @given(
@@ -163,11 +163,12 @@ class TestCrossAlgorithmConsistency:
         Q_np = P_np + shift
         R_u, t_u, c_u, rmsd_u = kabsch_np.kabsch_umeyama(P_np, Q_np)
         R_h, t_h, c_h, rmsd_h = kabsch_np.horn_with_scale(P_np, Q_np)
-        # Cross-algorithm: SVD-based umeyama vs eigen-based horn_with_scale
-        np.testing.assert_allclose(R_u, R_h, atol=1e-5)
-        np.testing.assert_allclose(t_u, t_h, atol=1e-5)
-        np.testing.assert_allclose(float(c_u), float(c_h), atol=1e-5)
-        np.testing.assert_allclose(float(rmsd_u), float(rmsd_h), atol=1e-5)
+        # Cross-algorithm: SVD-based umeyama vs eigen-based horn_with_scale;
+        # with sv[-1] > 1e-3, cond < 1000 so error < 1e-9
+        np.testing.assert_allclose(R_u, R_h, atol=1e-8)
+        np.testing.assert_allclose(t_u, t_h, atol=1e-8)
+        np.testing.assert_allclose(float(c_u), float(c_h), atol=1e-8)
+        np.testing.assert_allclose(float(rmsd_u), float(rmsd_h), atol=1e-8)
 
     @_NUMPY_SETTINGS
     @given(aligned_pair_nd())
