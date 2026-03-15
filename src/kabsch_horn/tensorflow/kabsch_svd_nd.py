@@ -27,6 +27,21 @@ def safe_svd(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
         else:
             dS_mat = tf.zeros_like(S_mat)
 
+        # SVD backward-pass sign convention (TensorFlow)
+        # ---------------------------------------------
+        # tf.linalg.svd returns (S, U, V) with A = U @ diag(S) @ V^T.
+        # Note: TF returns V, not Vh -- so V^T is the right factor.
+        #
+        # The F matrix is F_ij = 1 / (S_j^2 - S_i^2), computed as:
+        #   S_sq_diff = expand_dims(-2) - expand_dims(-1)   (col - row)
+        #
+        # This is the transposed axis ordering relative to PyTorch/JAX,
+        # which negates F. To compensate, the gradient formula uses + signs:
+        #   dA = U @ (diag(dS) + J @ S + S @ K) @ V^T
+        #
+        # Both forms are equivalent -- see Townsend (2016),
+        # "Differentiating the Singular Value Decomposition".
+
         # Create F matrix: F_ij = 1 / (S_j^2 - S_i^2)
         S_sq = tf.square(S)
         S_sq_diff = tf.expand_dims(S_sq, -2) - tf.expand_dims(S_sq, -1)
