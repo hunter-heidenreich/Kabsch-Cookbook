@@ -397,8 +397,10 @@ class TestAlignmentInvariants:
         _, _, rmsd_orig = kabsch_np.kabsch(P_np, Q_np)
         _, _, rmsd_shifted = kabsch_np.kabsch(P_np @ S.T + u, Q_np @ S.T + u)
         # RMSD depends on SVs of H, which are preserved under orthogonal conjugation;
-        # centering after rotation introduces O(eps * ||u|| * N) rounding
-        np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-9)
+        # centering after rotation introduces O(eps * ||u|| * sqrt(N*D)) rounding.
+        # Near-degenerate inputs (scale ~ eps) with ||u|| ~ O(1) trigger
+        # catastrophic cancellation in centering, pushing error to ~1e-9.
+        np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-8)
 
     @_NUMPY_SETTINGS
     @given(_correlated_with_shift())
