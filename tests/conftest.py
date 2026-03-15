@@ -164,9 +164,10 @@ def pytest_collection_modifyitems(session, config, items) -> None:
     Filters out tests where the requested framework adapter
     does not support the requested spatial dimension.
 
-    When ``--full`` is not passed, also skips float16/bfloat16 adapter tests
-    except for dtype-preservation tests (which exist specifically to verify
-    the upcast path).
+    Also drops gradient-only test modules for forward-only adapters
+    (e.g. NumPy), and when ``--full`` is not passed, skips
+    float16/bfloat16 adapter tests except for dtype-preservation tests
+    (which exist specifically to verify the upcast path).
 
     Note: Hypothesis tests parametrised by `adapter` but with `dim` drawn
     inside `@given` are not filtered here -- they guard themselves with

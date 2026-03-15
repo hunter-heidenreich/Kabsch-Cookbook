@@ -548,6 +548,7 @@ except ImportError:
     _MLX_AVAILABLE = False
 
 
+# NumPy is always available -- no try/except needed
 class NumPyAdapter(FrameworkAdapter[np.ndarray]):
     _DTYPE_MAP: ClassVar[dict[str, np.dtype]] = {
         "float16": np.float16,
