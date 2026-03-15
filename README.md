@@ -73,6 +73,10 @@ R, t, c, rmsd = kh.horn_with_scale(P_3d, Q_3d)
 # Single-call RMSD loss (autodiff frameworks only; gradients remain stable)
 loss = kh.kabsch_rmsd(P_nd, Q_nd)
 loss.mean().backward()
+
+# Per-point weights (e.g., confidence scores, B-factors)
+weights = torch.rand(10, 100)  # shape: [Batch, Points]
+R, t, rmsd = kh.kabsch(P_nd, Q_nd, weights=weights)
 ```
 
 ## Framework Support

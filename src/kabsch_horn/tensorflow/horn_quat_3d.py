@@ -40,7 +40,9 @@ def call_safe_eigh(A: tf.Tensor) -> tuple[tf.Tensor, ...]:
     return (L, V), grad
 
 
-def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
+def horn(
+    P: tf.Tensor, Q: tf.Tensor, weights: tf.Tensor | None = None
+) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     """
     Computes optimal rotation and translation to align P to Q using Horn's
     quaternion method.
@@ -51,6 +53,8 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -84,6 +88,22 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
     )
 
+    if weights is not None:
+        weights = tf.convert_to_tensor(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match"
+                f" P.shape[:-1] {P.shape[:-1]}"
+            )
+        weights = tf.cast(weights, P.dtype)
+        tf.debugging.assert_non_negative(
+            weights, message="weights must be non-negative"
+        )
+        tf.debugging.assert_positive(
+            tf.reduce_sum(weights, axis=-1),
+            message="weights must sum to a positive value",
+        )
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -95,18 +115,33 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
+    if weights is not None:
+        weights = tf.cast(weights, P.dtype)
+
     is_single = len(P.shape) == 2
     if is_single:
         P = tf.expand_dims(P, 0)
         Q = tf.expand_dims(Q, 0)
+        if weights is not None:
+            weights = tf.expand_dims(weights, 0)
 
-    centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
-    centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
+    if weights is not None:
+        w = tf.expand_dims(weights, -1)  # [..., N, 1]
+        w_sum = tf.reduce_sum(weights, axis=-1)  # [...]
+        w_sum_exp = tf.expand_dims(tf.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+        centroid_P = tf.reduce_sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+        centroid_Q = tf.reduce_sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+    else:
+        centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
+        centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    H = tf.matmul(p, q, transpose_a=True)
+    if weights is not None:
+        H = tf.matmul(w * p, q, transpose_a=True)
+    else:
+        H = tf.matmul(p, q, transpose_a=True)
 
     S = H + tf.linalg.matrix_transpose(H)
     tr = tf.linalg.trace(H)
@@ -165,9 +200,13 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
     )
 
     aligned = tf.matmul(p, R, transpose_b=True)
-    N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
     _eps = np.finfo(P.dtype.as_numpy_dtype).eps
-    mse = tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f
+    if weights is not None:
+        residual_sq = tf.reduce_sum(tf.square(aligned - q), axis=-1)  # [..., N]
+        mse = tf.reduce_sum(weights * residual_sq, axis=-1) / w_sum
+    else:
+        N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
+        mse = tf.reduce_sum(tf.square(aligned - q), axis=[-2, -1]) / N_pts_f
     rmsd = tf.sqrt(mse + _eps)
 
     if is_single:
@@ -180,7 +219,7 @@ def horn(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
 
 
 def horn_with_scale(
-    P: tf.Tensor, Q: tf.Tensor
+    P: tf.Tensor, Q: tf.Tensor, weights: tf.Tensor | None = None
 ) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor, tf.Tensor]:
     """
     Computes optimal rotation, translation, and scale to align P to Q
@@ -191,6 +230,8 @@ def horn_with_scale(
     Args:
         P: Source points, shape [..., N, 3].
         Q: Target points, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
@@ -225,6 +266,22 @@ def horn_with_scale(
         tf.shape(P)[-2], 2, message="At least 2 points are required for alignment"
     )
 
+    if weights is not None:
+        weights = tf.convert_to_tensor(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match"
+                f" P.shape[:-1] {P.shape[:-1]}"
+            )
+        weights = tf.cast(weights, P.dtype)
+        tf.debugging.assert_non_negative(
+            weights, message="weights must be non-negative"
+        )
+        tf.debugging.assert_positive(
+            tf.reduce_sum(weights, axis=-1),
+            message="weights must sum to a positive value",
+        )
+
     orig_dtype = P.dtype
     if P.dtype != Q.dtype:
         # Mixed dtypes: promote to higher precision
@@ -236,21 +293,37 @@ def horn_with_scale(
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
+    if weights is not None:
+        weights = tf.cast(weights, P.dtype)
+
     is_single = len(P.shape) == 2
     if is_single:
         P = tf.expand_dims(P, 0)
         Q = tf.expand_dims(Q, 0)
+        if weights is not None:
+            weights = tf.expand_dims(weights, 0)
 
-    centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
-    centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
+    if weights is not None:
+        w = tf.expand_dims(weights, -1)  # [..., N, 1]
+        w_sum = tf.reduce_sum(weights, axis=-1)  # [...]
+        w_sum_exp = tf.expand_dims(tf.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+        centroid_P = tf.reduce_sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+        centroid_Q = tf.reduce_sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+    else:
+        centroid_P = tf.reduce_mean(P, axis=-2, keepdims=True)
+        centroid_Q = tf.reduce_mean(Q, axis=-2, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
-    var_P = tf.reduce_sum(tf.square(p), axis=[-2, -1]) / N_pts_f
-
-    H = tf.matmul(p, q, transpose_a=True) / N_pts_f
+    if weights is not None:
+        weighted_sq = weights * tf.reduce_sum(tf.square(p), axis=-1)
+        var_P = tf.reduce_sum(weighted_sq, axis=-1) / w_sum
+        H = tf.matmul(w * p, q, transpose_a=True) / w_sum_exp
+    else:
+        N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
+        var_P = tf.reduce_sum(tf.square(p), axis=[-2, -1]) / N_pts_f
+        H = tf.matmul(p, q, transpose_a=True) / N_pts_f
 
     S = H + tf.linalg.matrix_transpose(H)
     tr = tf.linalg.trace(H)
@@ -316,7 +389,12 @@ def horn_with_scale(
         P, R, transpose_b=True
     ) + tf.expand_dims(t, -2)
     diff = aligned_P - Q
-    mse = tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f
+    if weights is not None:
+        residual_sq = tf.reduce_sum(tf.square(diff), axis=-1)  # [..., N]
+        mse = tf.reduce_sum(weights * residual_sq, axis=-1) / w_sum
+    else:
+        N_pts_f = tf.cast(tf.shape(P)[-2], P.dtype)
+        mse = tf.reduce_sum(tf.square(diff), axis=[-2, -1]) / N_pts_f
     rmsd = tf.sqrt(mse + _eps)
 
     if is_single:

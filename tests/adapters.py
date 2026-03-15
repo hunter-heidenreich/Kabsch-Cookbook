@@ -74,25 +74,25 @@ class FrameworkAdapter(Generic[T]):
     def convert_out(self, obj: T) -> np.ndarray:
         raise NotImplementedError
 
-    def kabsch(self, P: T, Q: T) -> tuple[T, ...]:
+    def kabsch(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def kabsch_umeyama(self, P: T, Q: T) -> tuple[T, ...]:
+    def kabsch_umeyama(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def horn(self, P: T, Q: T) -> tuple[T, ...]:
+    def horn(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def horn_with_scale(self, P: T, Q: T) -> tuple[T, ...]:
+    def horn_with_scale(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def kabsch_rmsd(self, P: T, Q: T) -> T:
+    def kabsch_rmsd(self, P: T, Q: T, weights: T | None = None) -> T:
         raise NotImplementedError
 
-    def kabsch_umeyama_rmsd(self, P: T, Q: T) -> T:
+    def kabsch_umeyama_rmsd(self, P: T, Q: T, weights: T | None = None) -> T:
         raise NotImplementedError
 
-    def get_transform_func(self, algo: str) -> Callable[[T, T], tuple[T, ...]]:
+    def get_transform_func(self, algo: str) -> Callable:
         """Returns the corresponding transformation function for the given algorithm."""
         if algo == "kabsch":
             return self.kabsch
@@ -111,7 +111,7 @@ class FrameworkAdapter(Generic[T]):
         self,
         P: T,
         Q: T,
-        func: Callable[[T, T], tuple[T, ...]],
+        func: Callable,
         seed: int | None = 42,
         wrt: str = "P",
     ) -> np.ndarray:
@@ -155,27 +155,53 @@ try:
                 return obj.detach().numpy()
             return obj
 
-        def kabsch(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.kabsch(P, Q)
+        def kabsch(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.kabsch(P, Q, weights=weights)
 
         def kabsch_umeyama(
-            self, P: torch.Tensor, Q: torch.Tensor
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
         ) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.kabsch_umeyama(P, Q)
+            return kabsch_torch.kabsch_umeyama(P, Q, weights=weights)
 
-        def horn(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.horn(P, Q)
+        def horn(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.horn(P, Q, weights=weights)
 
         def horn_with_scale(
-            self, P: torch.Tensor, Q: torch.Tensor
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
         ) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.horn_with_scale(P, Q)
+            return kabsch_torch.horn_with_scale(P, Q, weights=weights)
 
-        def kabsch_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-            return kabsch_torch.kabsch_rmsd(P, Q)
+        def kabsch_rmsd(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> torch.Tensor:
+            return kabsch_torch.kabsch_rmsd(P, Q, weights=weights)
 
-        def kabsch_umeyama_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-            return kabsch_torch.kabsch_umeyama_rmsd(P, Q)
+        def kabsch_umeyama_rmsd(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> torch.Tensor:
+            return kabsch_torch.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: torch.Tensor) -> bool:
             return torch.isnan(tensor).any().item()
@@ -184,7 +210,7 @@ try:
             self,
             P: torch.Tensor,
             Q: torch.Tensor,
-            func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -249,23 +275,35 @@ try:
                 obj = obj.astype(jnp.float32)
             return np.array(obj)
 
-        def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.kabsch(P, Q)
+        def kabsch(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.kabsch(P, Q, weights=weights)
 
-        def kabsch_umeyama(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.kabsch_umeyama(P, Q)
+        def kabsch_umeyama(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.kabsch_umeyama(P, Q, weights=weights)
 
-        def horn(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.horn(P, Q)
+        def horn(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.horn(P, Q, weights=weights)
 
-        def horn_with_scale(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.horn_with_scale(P, Q)
+        def horn_with_scale(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.horn_with_scale(P, Q, weights=weights)
 
-        def kabsch_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
-            return kabsch_jax.kabsch_rmsd(P, Q)
+        def kabsch_rmsd(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> jax.Array:
+            return kabsch_jax.kabsch_rmsd(P, Q, weights=weights)
 
-        def kabsch_umeyama_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
-            return kabsch_jax.kabsch_umeyama_rmsd(P, Q)
+        def kabsch_umeyama_rmsd(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> jax.Array:
+            return kabsch_jax.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: jax.Array) -> bool:
             return jnp.isnan(tensor).any()
@@ -274,7 +312,7 @@ try:
             self,
             P: jax.Array,
             Q: jax.Array,
-            func: Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -339,34 +377,52 @@ try:
             return obj.numpy()
 
         def kabsch(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.kabsch(P, Q)
+            return kabsch_tf.kabsch(P, Q, weights=weights)
 
         def kabsch_umeyama(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.kabsch_umeyama(P, Q)
+            return kabsch_tf.kabsch_umeyama(P, Q, weights=weights)
 
         def horn(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.horn(P, Q)
+            return kabsch_tf.horn(P, Q, weights=weights)
 
         def horn_with_scale(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.horn_with_scale(P, Q)
+            return kabsch_tf.horn_with_scale(P, Q, weights=weights)
 
         def kabsch_rmsd(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tf.Tensor | tf.Variable:
-            return kabsch_tf.kabsch_rmsd(P, Q)
+            return kabsch_tf.kabsch_rmsd(P, Q, weights=weights)
 
         def kabsch_umeyama_rmsd(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tf.Tensor | tf.Variable:
-            return kabsch_tf.kabsch_umeyama_rmsd(P, Q)
+            return kabsch_tf.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: tf.Tensor | tf.Variable) -> bool:
             return tf.math.is_nan(tensor).numpy().any()
@@ -375,10 +431,7 @@ try:
             self,
             P: tf.Tensor | tf.Variable,
             Q: tf.Tensor | tf.Variable,
-            func: Callable[
-                [tf.Tensor | tf.Variable, tf.Tensor | tf.Variable],
-                tuple[tf.Tensor | tf.Variable, ...],
-            ],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -475,23 +528,35 @@ try:
                 ret = ret.astype(np.float32)
             return ret
 
-        def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            return kabsch_mlx.kabsch(P, Q)
+        def kabsch(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.kabsch(P, Q, weights=weights)
 
-        def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            return kabsch_mlx.kabsch_umeyama(P, Q)
+        def kabsch_umeyama(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.kabsch_umeyama(P, Q, weights=weights)
 
-        def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            return kabsch_mlx.horn(P, Q)
+        def horn(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.horn(P, Q, weights=weights)
 
-        def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            return kabsch_mlx.horn_with_scale(P, Q)
+        def horn_with_scale(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.horn_with_scale(P, Q, weights=weights)
 
-        def kabsch_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
-            return kabsch_mlx.kabsch_rmsd(P, Q)
+        def kabsch_rmsd(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> mx.array:
+            return kabsch_mlx.kabsch_rmsd(P, Q, weights=weights)
 
-        def kabsch_umeyama_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
-            return kabsch_mlx.kabsch_umeyama_rmsd(P, Q)
+        def kabsch_umeyama_rmsd(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> mx.array:
+            return kabsch_mlx.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: mx.array) -> bool:
             return mx.any(mx.isnan(tensor)).item()
@@ -500,7 +565,7 @@ try:
             self,
             P: mx.array,
             Q: mx.array,
-            func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -570,17 +635,25 @@ class NumPyAdapter(FrameworkAdapter[np.ndarray]):
             obj = obj.astype(np.float32)
         return obj
 
-    def kabsch(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
-        return kabsch_np.kabsch(P, Q)
+    def kabsch(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.kabsch(P, Q, weights=weights)
 
-    def kabsch_umeyama(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
-        return kabsch_np.kabsch_umeyama(P, Q)
+    def kabsch_umeyama(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.kabsch_umeyama(P, Q, weights=weights)
 
-    def horn(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
-        return kabsch_np.horn(P, Q)
+    def horn(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.horn(P, Q, weights=weights)
 
-    def horn_with_scale(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
-        return kabsch_np.horn_with_scale(P, Q)
+    def horn_with_scale(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.horn_with_scale(P, Q, weights=weights)
 
     def is_nan(self, tensor: np.ndarray) -> bool:
         return np.isnan(tensor).any()
