@@ -210,8 +210,8 @@ class TestDifferentiabilityTraps:
             adapter, "precision", "float64"
         ) in ("float16", "bfloat16"):
             pytest.skip(
-                "Scale algorithms require division by variance, which overflows "
-                "float16 on origin collapse."
+                "Scale algorithms produce large gradients on origin collapse "
+                "that overflow float16/bfloat16 range."
             )
 
         rng = np.random.default_rng(42)
@@ -306,13 +306,6 @@ class TestDifferentiabilityTraps:
         algo: str,
     ) -> None:
         """Gradients remain finite for near-collinear point clouds (Hypothesis)."""
-        if algo in ALGORITHMS_WITH_SCALE and getattr(
-            adapter, "precision", "float64"
-        ) in ("float16", "bfloat16"):
-            pytest.skip(
-                "Scale algorithms require division by variance, which can overflow "
-                "float16 on near-collinear inputs."
-            )
 
         @settings(
             max_examples=_MAX_EXAMPLES,
@@ -381,12 +374,6 @@ class TestDifferentiabilityTraps:
         algo: str,
     ) -> None:
         """Gradients remain finite for near-coplanar point clouds (Hypothesis)."""
-        if algo in ALGORITHMS_WITH_SCALE and getattr(
-            adapter, "precision", "float64"
-        ) in ("float16", "bfloat16"):
-            pytest.skip(
-                "Umeyama variance division overflows float16 on near-coplanar inputs."
-            )
         if adapter.name == "MLXAdapter" and adapter.precision == "float32":
             pytest.skip(
                 "MLX float32 SafeSVD backward is unstable for near-coplanar inputs"
@@ -450,3 +437,28 @@ class TestDifferentiabilityTraps:
             assert np.all(np.isfinite(grad))
 
         _inner()
+
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_WITH_SCALE))
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_scale_factor_finite_for_half_precision_origin_collapse(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+        dim: int,
+    ) -> None:
+        """Scale factor c stays finite (not inf) in half-precision origin collapse."""
+        if getattr(adapter, "precision", "float64") not in ("float16", "bfloat16"):
+            pytest.skip("Only relevant for half-precision adapters.")
+
+        rng = np.random.default_rng(42)
+        P_np = np.zeros((5, dim), dtype=np.float64)
+        Q_np = rng.random((5, dim)).astype(np.float64)
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        res = func(P, Q)
+        c = adapter.convert_out(res[2])
+
+        assert np.all(np.isfinite(c)), f"Scale factor overflowed: {c}"

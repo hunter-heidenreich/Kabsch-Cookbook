@@ -225,6 +225,7 @@ def kabsch_umeyama(
     if orig_dtype in (np.float16,):
         R = R.astype(orig_dtype)
         t = t.astype(orig_dtype)
+        c = np.clip(c, a_min=None, a_max=np.finfo(orig_dtype).max)
         c = c.astype(orig_dtype)
         rmsd = rmsd.astype(orig_dtype)
     return R, t, c, rmsd

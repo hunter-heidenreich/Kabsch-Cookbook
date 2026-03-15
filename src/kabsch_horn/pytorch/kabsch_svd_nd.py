@@ -340,6 +340,7 @@ def kabsch_umeyama(
         if orig_dtype in (torch.float16, torch.bfloat16):
             R = R.to(orig_dtype)
             t = t.to(orig_dtype)
+            c = torch.clamp(c, max=torch.finfo(orig_dtype).max)
             c = c.to(orig_dtype)
             rmsd = rmsd.to(orig_dtype)
         return R, t, c, rmsd
@@ -352,6 +353,7 @@ def kabsch_umeyama(
     if orig_dtype in (torch.float16, torch.bfloat16):
         R = R.to(orig_dtype)
         t = t.to(orig_dtype)
+        c = torch.clamp(c, max=torch.finfo(orig_dtype).max)
         c = c.to(orig_dtype)
         rmsd = rmsd.to(orig_dtype)
 

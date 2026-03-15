@@ -291,6 +291,7 @@ def horn_with_scale(
         if orig_dtype in (mx.float16, mx.bfloat16):
             R = R.astype(orig_dtype)
             t = t.astype(orig_dtype)
+            c = mx.minimum(c, mx.array(mx.finfo(orig_dtype).max, dtype=c.dtype))
             c = c.astype(orig_dtype)
             rmsd = rmsd.astype(orig_dtype)
         return R, t, c, rmsd

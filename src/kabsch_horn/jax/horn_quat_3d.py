@@ -269,6 +269,7 @@ def horn_with_scale(
         if orig_dtype in (jnp.float16, jnp.bfloat16):
             R = R.astype(orig_dtype)
             t = t.astype(orig_dtype)
+            c = jnp.clip(c, max=jnp.finfo(orig_dtype).max)
             c = c.astype(orig_dtype)
             rmsd = rmsd.astype(orig_dtype)
         return R, t, c, rmsd
@@ -280,6 +281,7 @@ def horn_with_scale(
     if orig_dtype in (jnp.float16, jnp.bfloat16):
         R = R.astype(orig_dtype)
         t = t.astype(orig_dtype)
+        c = jnp.clip(c, max=jnp.finfo(orig_dtype).max)
         c = c.astype(orig_dtype)
         rmsd = rmsd.astype(orig_dtype)
     return R, t, c, rmsd
