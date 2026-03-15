@@ -165,15 +165,21 @@ class TestDifferentiabilityTraps:
         adapter: FrameworkAdapter,
         algo: str,
         wrt: str,
+        dim: int,
     ) -> None:
         """
         Checks that gradients remain numerically stable when the system is
-        underdetermined.
+        underdetermined (2 points in dim-D space).
         """
-        # 2 points in 3D (underdetermined)
-        P_np = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float64)
-        R_true = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=np.float64)
-        t_true = np.array([2.0, 3.0, 4.0], dtype=np.float64)
+        rng = np.random.default_rng(42)
+        # 2 points in dim-D (underdetermined)
+        P_np = rng.random((2, dim)).astype(np.float64)
+        # Random rotation + translation
+        A = rng.standard_normal((dim, dim))
+        R_true, _ = np.linalg.qr(A)
+        if np.linalg.det(R_true) < 0:
+            R_true[:, 0] *= -1
+        t_true = rng.random(dim).astype(np.float64) * 5
         Q_np = (P_np @ R_true.T) + t_true
 
         P = adapter.convert_in(P_np)
@@ -194,13 +200,12 @@ class TestDifferentiabilityTraps:
         algo: str,
         wrt: str,
         collapse_target: str,
+        dim: int,
     ) -> None:
         """
         Checks that gradients remain numerically stable when the inputs collapse
         to the origin.
         """
-        dim = 3
-
         if algo in ALGORITHMS_WITH_SCALE and getattr(
             adapter, "precision", "float64"
         ) in ("float16", "bfloat16"):
@@ -209,9 +214,9 @@ class TestDifferentiabilityTraps:
                 "float16 on origin collapse."
             )
 
-        np.random.seed(42)
-        P_np = np.random.rand(5, dim).astype(np.float64)
-        Q_np = np.random.rand(5, dim).astype(np.float64)
+        rng = np.random.default_rng(42)
+        P_np = rng.random((5, dim)).astype(np.float64)
+        Q_np = rng.random((5, dim)).astype(np.float64)
 
         if collapse_target in ["P", "Both"]:
             P_np = np.zeros_like(P_np)
@@ -382,7 +387,7 @@ class TestDifferentiabilityTraps:
             pytest.skip(
                 "Umeyama variance division overflows float16 on near-coplanar inputs."
             )
-        if type(adapter).__name__ == "MLXAdapter" and adapter.precision == "float32":
+        if adapter.name == "MLXAdapter" and adapter.precision == "float32":
             pytest.skip(
                 "MLX float32 SafeSVD backward is unstable for near-coplanar inputs"
             )
@@ -419,7 +424,7 @@ class TestDifferentiabilityTraps:
         # Precision check is parametric -- skip before Hypothesis generates examples.
         if getattr(adapter, "precision", "float64") not in ("float32", "float64"):
             pytest.skip("extreme scale unsafe for float16/bfloat16")
-        if type(adapter).__name__ == "MLXAdapter" and adapter.precision == "float64":
+        if adapter.name == "MLXAdapter" and adapter.precision == "float64":
             pytest.skip(
                 "MLX float64 SafeSVD backward is unstable at extreme scales on CPU"
             )

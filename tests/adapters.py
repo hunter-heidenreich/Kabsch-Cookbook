@@ -39,6 +39,11 @@ class FrameworkAdapter(Generic[T]):
     def rtol(self) -> float:
         return self._TOLERANCES[self.precision]["rtol"]
 
+    @property
+    def name(self) -> str:
+        """Human-readable adapter name (class name)."""
+        return type(self).__name__
+
     def supports_dim(self, dim: int) -> bool:
         """Indicates whether this adapter supports N-D inputs."""
         return True

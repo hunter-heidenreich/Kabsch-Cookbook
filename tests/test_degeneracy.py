@@ -18,13 +18,12 @@ class TestDegeneracy:
         adapter: FrameworkAdapter,
         algo: str,
         collapse_target: str,
+        dim: int,
     ) -> None:
         """Verifies behavior when points collapse to the origin."""
-        dim = 3
-
-        np.random.seed(42)
-        P_np = np.random.rand(5, dim).astype(np.float64)
-        Q_np = np.random.rand(5, dim).astype(np.float64)
+        rng = np.random.default_rng(42)
+        P_np = rng.random((5, dim)).astype(np.float64)
+        Q_np = rng.random((5, dim)).astype(np.float64)
 
         if collapse_target in ["P", "Both"]:
             P_np = np.zeros_like(P_np)

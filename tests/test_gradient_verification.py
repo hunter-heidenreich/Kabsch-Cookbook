@@ -112,11 +112,11 @@ class TestGradientVerification:
         Compares analytically computed gradients against numerical finite
         differences.
         """
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         n_points = max(10, dim * 2)
 
-        P_np = np.random.rand(n_points, dim).astype(np.float64)
-        Q_np = (P_np + np.random.rand(n_points, dim) * 0.1).astype(np.float64)
+        P_np = rng.random((n_points, dim)).astype(np.float64)
+        Q_np = (P_np + rng.random((n_points, dim)) * 0.1).astype(np.float64)
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
 
@@ -153,11 +153,11 @@ class TestGradientVerification:
         Compares analytically computed gradients against numerical finite
         differences for completely uncorrelated random point clouds.
         """
-        np.random.seed(123)
+        rng = np.random.default_rng(123)
         n_points = max(10, dim * 2)
 
-        P_np = np.random.rand(n_points, dim).astype(np.float64)
-        Q_np = np.random.rand(n_points, dim).astype(np.float64)
+        P_np = rng.random((n_points, dim)).astype(np.float64)
+        Q_np = rng.random((n_points, dim)).astype(np.float64)
 
         P_fw = adapter.convert_in(P_np)
         Q_fw = adapter.convert_in(Q_np)
@@ -334,7 +334,9 @@ _JAX_SVD_XFAIL = pytest.mark.xfail(
     ),
 )
 
-_ALL_ALGOS = ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+# Function names (not get_transform_func aliases) -- these tests call
+# framework functions directly via algo_map lookups.
+_DOUBLE_BACKWARD_ALGOS = ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
 _PRECISIONS = ["float32", "float64"]
 
 
@@ -375,9 +377,9 @@ class TestDoubleBackwardNonPyTorch:
         }
         dtype = jnp.float32 if precision == "float32" else jnp.float64
 
-        np.random.seed(42)
-        P = jnp.array(np.random.rand(10, 3), dtype=dtype)
-        Q = jnp.array(np.random.rand(10, 3), dtype=dtype)
+        rng = np.random.default_rng(42)
+        P = jnp.array(rng.random((10, 3)), dtype=dtype)
+        Q = jnp.array(rng.random((10, 3)), dtype=dtype)
         func = algo_map[algo]
 
         def loss_fn(P_in: jax.Array) -> jax.Array:
@@ -390,7 +392,7 @@ class TestDoubleBackwardNonPyTorch:
 
     @pytest.mark.skipif(not _TF_AVAILABLE, reason="TensorFlow not installed")
     @pytest.mark.parametrize("precision", _PRECISIONS)
-    @pytest.mark.parametrize("algo", _ALL_ALGOS)
+    @pytest.mark.parametrize("algo", _DOUBLE_BACKWARD_ALGOS)
     def test_double_backward_tensorflow(self, algo: str, precision: str) -> None:
         """TensorFlow double backward via nested GradientTape."""
         import tensorflow as tf
@@ -405,9 +407,9 @@ class TestDoubleBackwardNonPyTorch:
         }
         dtype = tf.float32 if precision == "float32" else tf.float64
 
-        np.random.seed(42)
-        P = tf.Variable(np.random.rand(10, 3), dtype=dtype)
-        Q = tf.Variable(np.random.rand(10, 3), dtype=dtype)
+        rng = np.random.default_rng(42)
+        P = tf.Variable(rng.random((10, 3)), dtype=dtype)
+        Q = tf.Variable(rng.random((10, 3)), dtype=dtype)
         func = algo_map[algo]
 
         with tf.GradientTape() as tape2:
@@ -423,7 +425,7 @@ class TestDoubleBackwardNonPyTorch:
 
     @pytest.mark.skipif(not _MLX_AVAILABLE, reason="MLX not installed")
     @pytest.mark.parametrize("precision", _PRECISIONS)
-    @pytest.mark.parametrize("algo", _ALL_ALGOS)
+    @pytest.mark.parametrize("algo", _DOUBLE_BACKWARD_ALGOS)
     def test_double_backward_mlx(self, algo: str, precision: str) -> None:
         """MLX double backward via mx.grad applied twice."""
         import mlx.core as mx
@@ -439,9 +441,9 @@ class TestDoubleBackwardNonPyTorch:
         dtype = mx.float32 if precision == "float32" else mx.float64
         mx.set_default_device(mx.cpu if precision == "float64" else mx.gpu)
 
-        np.random.seed(42)
-        P = mx.array(np.random.rand(10, 3), dtype=dtype)
-        Q = mx.array(np.random.rand(10, 3), dtype=dtype)
+        rng = np.random.default_rng(42)
+        P = mx.array(rng.random((10, 3)), dtype=dtype)
+        Q = mx.array(rng.random((10, 3)), dtype=dtype)
         func = algo_map[algo]
 
         def loss_fn(P_in: mx.array) -> mx.array:

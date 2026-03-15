@@ -116,11 +116,12 @@ def check_transform_close(
     res: tuple,
     R_expected: np.ndarray,
     t_expected: np.ndarray,
-    c_expected: float = 1.0,
-    rmsd_expected: float | None = None,
-    algo: str = "kabsch",
-    atol: float = 1e-5,  # float64 default; callers override for lower precisions
-    rtol: float = 1e-5,
+    c_expected: float,
+    rmsd_expected: float | None,
+    algo: str,
+    *,
+    atol: float,
+    rtol: float,
 ) -> None:
     __tracebackhide__ = True
 

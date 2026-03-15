@@ -25,8 +25,8 @@ class TestCatastrophicCancellation:
                 "translations due to mantissa limits."
             )
 
-        np.random.seed(42)
-        P_np = np.random.rand(10, dim).astype(np.float64)
+        rng = np.random.default_rng(42)
+        P_np = rng.random((10, dim)).astype(np.float64)
 
         # A large translation
         large_t = np.array([1e6, -2e6, 3e6], dtype=np.float64)
@@ -74,8 +74,8 @@ class TestCatastrophicCancellation:
                 "translations due to mantissa limits."
             )
 
-        np.random.seed(42)
-        P_np = np.random.rand(10, dim).astype(np.float64) * 10
+        rng = np.random.default_rng(42)
+        P_np = rng.random((10, dim)).astype(np.float64) * 10
 
         # extreme offsets
         offset_P = np.array([5e6, -4e6, 2e6], dtype=np.float64)
