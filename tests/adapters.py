@@ -4,6 +4,8 @@ from typing import ClassVar, Generic, TypeVar
 import numpy as np
 import pytest
 
+from kabsch_horn import numpy as kabsch_np
+
 T = TypeVar("T")
 
 
@@ -55,6 +57,11 @@ class FrameworkAdapter(Generic[T]):
     @property
     def supports_nan_input(self) -> bool:
         """Returns True if the framework propagates NaN through SVD without crashing."""
+        return True
+
+    @property
+    def supports_grad(self) -> bool:
+        """Returns True if the framework supports automatic differentiation."""
         return True
 
     def convert_in(self, arr: np.ndarray) -> T:
@@ -541,7 +548,62 @@ except ImportError:
     _MLX_AVAILABLE = False
 
 
+# NumPy is always available -- no try/except needed
+class NumPyAdapter(FrameworkAdapter[np.ndarray]):
+    _DTYPE_MAP: ClassVar[dict[str, np.dtype]] = {
+        "float16": np.float16,
+        "float32": np.float32,
+        "float64": np.float64,
+    }
+
+    @property
+    def supports_grad(self) -> bool:
+        return False
+
+    @property
+    def supports_nan_input(self) -> bool:
+        # NumPy's SVD raises LinAlgError on NaN inputs
+        return False
+
+    def convert_in(self, arr: np.ndarray) -> np.ndarray:
+        dtype = self._DTYPE_MAP[self.precision]
+        return arr.astype(dtype)
+
+    def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> np.ndarray:
+        dtype = self._DTYPE_MAP[precision]
+        return arr.astype(dtype)
+
+    def convert_out(self, obj: np.ndarray) -> np.ndarray:
+        if obj.dtype == np.float16:
+            obj = obj.astype(np.float32)
+        return obj
+
+    def kabsch(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
+        return kabsch_np.kabsch(P, Q)
+
+    def kabsch_umeyama(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
+        return kabsch_np.kabsch_umeyama(P, Q)
+
+    def horn(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
+        return kabsch_np.horn(P, Q)
+
+    def horn_with_scale(self, P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, ...]:
+        return kabsch_np.horn_with_scale(P, Q)
+
+    def is_nan(self, tensor: np.ndarray) -> bool:
+        return np.isnan(tensor).any()
+
+    @property
+    def mismatch_exception_type(
+        self,
+    ) -> type[Exception] | tuple[type[Exception], ...]:
+        return ValueError
+
+
 frameworks = [
+    pytest.param(NumPyAdapter("float16"), id="NumPy-Float16"),
+    pytest.param(NumPyAdapter("float32"), id="NumPy-Float32"),
+    pytest.param(NumPyAdapter("float64"), id="NumPy-Float64"),
     *(
         [
             pytest.param(PyTorchAdapter("bfloat16"), id="PyTorch-BFloat16"),
