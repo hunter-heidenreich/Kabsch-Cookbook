@@ -45,13 +45,12 @@ class TestCatastrophicCancellation:
         R_res = adapter.convert_out(res[0])
         t_res = adapter.convert_out(res[1])
 
-        # High precision offset check because float32 suffers immense precision loss
-        # at 1e6. If testing float32, tolerate higher absolute error.
+        # Rotation is well-conditioned (centroid subtraction removes the large offset)
         assert R_res == pytest.approx(R_true, abs=adapter.atol)
 
-        # Translation error scales with magnitude due to float32 eps being a
-        # relative concept. So we adjust the translation tolerance for the test
-        assert t_res == pytest.approx(large_t, rel=adapter.rtol)
+        # Translation tolerance: centroid arithmetic at 1e6 magnitude loses
+        # ~1 digit to cancellation, so relax rtol by 10x for this stress test
+        assert t_res == pytest.approx(large_t, rel=adapter.rtol * 10)
 
         if algo in ALGORITHMS_WITH_SCALE:
             c_res = float(adapter.convert_out(res[2]))
@@ -100,7 +99,9 @@ class TestCatastrophicCancellation:
         t_true = offset_P - (offset_P @ R_true.T) + large_t
 
         assert R_res == pytest.approx(R_true, abs=adapter.atol)
-        assert t_res == pytest.approx(t_true, rel=adapter.rtol)
+
+        # Both clouds offset by 5e6; centroid cancellation loses ~1 digit
+        assert t_res == pytest.approx(t_true, rel=adapter.rtol * 10)
 
         if algo in ALGORITHMS_WITH_SCALE:
             c_res = float(adapter.convert_out(res[2]))

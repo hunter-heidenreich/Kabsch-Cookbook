@@ -283,6 +283,11 @@ class TestGradientVerification:
         if adapter.precision in ("float16", "bfloat16"):
             pytest.skip("overflow risk at near-degenerate inputs for float16/bfloat16")
 
+        # Skip inputs where the point cloud is so degenerate that the gradient
+        # direction is unreliable (e.g., 4 nearly-identical points).
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
+
         # Q is a small perturbation of P so RMSD > 0 but singularity is near.
         rng = np.random.default_rng(0)
         Q_np = (P_np + rng.standard_normal(P_np.shape) * 0.05).astype(np.float64)

@@ -8,17 +8,18 @@ T = TypeVar("T")
 
 
 class FrameworkAdapter(Generic[T]):
-    # Base tolerances per precision tier.  Each atol is set well above machine
-    # epsilon to absorb accumulation through the SVD/eigh pipeline:
-    #   float16  eps ~6e-4,  atol=1e-1  (~150x eps)
-    #   bfloat16 eps ~8e-3,  atol=1e-1  (~12x eps)
-    #   float32  eps ~1.2e-7, atol=5e-3 (~40 000x eps)
-    #   float64  eps ~2.2e-16, atol=1e-5 (~4.5e10x eps)
+    # Base tolerances per precision tier, derived from sqrt(machine_eps)
+    # with a ~3x safety multiplier for SVD/eigh pipeline accumulation:
+    #   float16  sqrt(9.8e-4)=3.1e-2  * 3 ≈ 1e-1
+    #   bfloat16 sqrt(7.8e-3)=8.8e-2  * 1 ≈ 1e-1
+    #   float32  sqrt(1.2e-7)=3.5e-4  * 3 ≈ 1e-3
+    #   float64  sqrt(2.2e-16)=1.5e-8 * 7 ≈ 1e-7
+    # eps: near-zero guard for descent checks (also usable as FD step)
     _TOLERANCES: ClassVar[dict[str, dict[str, float]]] = {
         "float16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
         "bfloat16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
-        "float32": {"eps": 1e-3, "atol": 5e-3, "rtol": 5e-3},
-        "float64": {"eps": 1e-5, "atol": 1e-5, "rtol": 1e-5},
+        "float32": {"eps": 1e-3, "atol": 1e-3, "rtol": 1e-3},
+        "float64": {"eps": 1e-5, "atol": 1e-7, "rtol": 1e-7},
     }
 
     def __init__(self, precision: str = "float64"):
