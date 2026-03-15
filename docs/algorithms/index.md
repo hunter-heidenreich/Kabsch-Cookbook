@@ -8,11 +8,13 @@ Given two point clouds \(P\) and \(Q\) with \(N\) points in \(D\) dimensions, th
 \text{RMSD} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \| c \cdot R p_i + t - q_i \|^2}
 \]
 
+All functions accept an optional per-point weight vector \(w \in \mathbb{R}^N\) (\(w_i \geq 0\), \(\sum w_i > 0\)). When weights are provided, centroids become weighted means and the RMSD uses the weighted sum of squared residuals. Uniform weights recover the standard unweighted formulation.
+
 This library provides two algorithms for solving this problem.
 
 ### Kabsch algorithm (N-dimensional SVD)
 
-The Kabsch algorithm works in any number of dimensions. It centers both clouds, computes the cross-covariance matrix \(H = (P - \bar{P})^\top (Q - \bar{Q})\), and takes the SVD:
+The Kabsch algorithm works in any number of dimensions. It centers both clouds (using weighted means when weights are provided), computes the cross-covariance matrix \(H = (P - \bar{P})^\top (Q - \bar{Q})\), and takes the SVD:
 
 \[
 H = U \Sigma V^\top

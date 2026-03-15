@@ -24,6 +24,10 @@ Q = torch.randn(10, 100, 3)
 # Kabsch alignment
 R, t, rmsd = kh.kabsch(P, Q)
 
+# Per-point weights (e.g., confidence scores, B-factors)
+weights = torch.rand(10, 100)
+R, t, rmsd = kh.kabsch(P, Q, weights=weights)
+
 # Single-call RMSD loss for training
 loss = kh.kabsch_rmsd(P, Q)
 loss.mean().backward()

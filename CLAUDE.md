@@ -42,6 +42,7 @@ The project uses `uv` for dependency management and task running. All dev depend
 
 **Tensor conventions**:
 - Input shape: `[N, D]` (single) or `[..., N, D]` (batched, arbitrary leading dims)
+- All alignment functions accept an optional `weights: [..., N]` parameter for per-point weighting
 - `kabsch`/`horn` return `(R, t, rmsd)` where `R: [..., D, D]`, `t: [..., D]`, `rmsd: [...]`
 - `kabsch_umeyama`/`horn_with_scale` return `(R, t, c, rmsd)` with scale `c: [...]`
 - MLX adapter is restricted to `dim == 3` (hardcoded 3x3 determinant correction)
@@ -54,7 +55,7 @@ The project uses `uv` for dependency management and task running. All dev depend
 - `tests/conftest.py` - Shared pytest fixtures (`dim`, `identity_points`, `known_transform_points`, `coplanar_points`, etc.) and a `pytest_collection_modifyitems` hook that filters out tests where the adapter's `supports_dim()` returns False (e.g., MLX only runs 3D tests).
 - `tests/utils.py` - `compute_numeric_grad` (finite-difference gradient checker) and `check_transform_close` helper.
 
-**Test files**: `test_forward_pass_equivalence.py`, `test_properties.py`, `test_differentiability_traps.py`, `test_gradient_verification.py`, `test_catastrophic_cancellation.py`, `test_degeneracy.py`, `test_error_handling.py`, `test_rmsd_wrappers.py`, `test_reference_validation.py`, `test_mixed_dtype.py`, `test_mlx_float64_warning.py`, `test_tf_dynamic_validation.py`.
+**Test files**: `test_forward_pass_equivalence.py`, `test_properties.py`, `test_differentiability_traps.py`, `test_gradient_verification.py`, `test_catastrophic_cancellation.py`, `test_degeneracy.py`, `test_error_handling.py`, `test_rmsd_wrappers.py`, `test_reference_validation.py`, `test_mixed_dtype.py`, `test_mlx_float64_warning.py`, `test_tf_dynamic_validation.py`, `test_weighted.py`.
 
 **JAX note**: `conftest.py` sets `JAX_ENABLE_X64=True` to allow float64. This must remain as the first env-var set before jax imports.
 

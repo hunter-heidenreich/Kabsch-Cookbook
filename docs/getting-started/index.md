@@ -64,6 +64,16 @@ R, t, rmsd = kh.horn(P_3d, Q_3d)
 R, t, c, rmsd = kh.horn_with_scale(P_3d, Q_3d)
 ```
 
+### Per-point weights
+
+All alignment functions accept an optional `weights` parameter of shape `[..., N]`. Weights must be non-negative and sum to a positive value.
+
+```python
+# Confidence scores, B-factors, attention masks, etc.
+weights = torch.rand(10, 100)  # shape: [..., N]
+R, t, rmsd = kh.kabsch(P, Q, weights=weights)
+```
+
 ### RMSD loss for training
 
 Autodiff frameworks export single-call RMSD loss functions with stable gradients:
