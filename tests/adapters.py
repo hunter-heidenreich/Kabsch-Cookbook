@@ -60,6 +60,10 @@ class FrameworkAdapter(Generic[T]):
     def convert_in(self, arr: np.ndarray) -> T:
         raise NotImplementedError
 
+    def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> T:
+        """Convert array to framework tensor with an explicit precision override."""
+        raise NotImplementedError
+
     def convert_out(self, obj: T) -> np.ndarray:
         raise NotImplementedError
 
@@ -130,6 +134,12 @@ try:
         def convert_in(self, arr: np.ndarray) -> torch.Tensor:
             dtype = self._DTYPE_MAP[self.precision]
             return torch.tensor(arr, dtype=dtype, requires_grad=True)
+
+        def convert_in_with_dtype(
+            self, arr: np.ndarray, precision: str
+        ) -> torch.Tensor:
+            dtype = self._DTYPE_MAP[precision]
+            return torch.tensor(arr, dtype=dtype, requires_grad=False)
 
         def convert_out(self, obj: torch.Tensor) -> np.ndarray:
             if isinstance(obj, torch.Tensor):
@@ -223,6 +233,10 @@ try:
             dtype = self._DTYPE_MAP[self.precision]
             return jnp.array(arr, dtype=dtype)
 
+        def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> jax.Array:
+            dtype = self._DTYPE_MAP[precision]
+            return jnp.array(arr, dtype=dtype)
+
         def convert_out(self, obj: jax.Array) -> np.ndarray:
             if obj.dtype in (jnp.bfloat16, jnp.float16):
                 obj = obj.astype(jnp.float32)
@@ -307,6 +321,10 @@ try:
         def convert_in(self, arr: np.ndarray) -> tf.Tensor | tf.Variable:
             dtype = self._DTYPE_MAP[self.precision]
             return tf.Variable(arr, dtype=dtype)
+
+        def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> tf.Tensor:
+            dtype = self._DTYPE_MAP[precision]
+            return tf.constant(arr, dtype=dtype)
 
         def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
             if obj.dtype in (tf.bfloat16, tf.float16):
@@ -430,6 +448,14 @@ try:
         def convert_in(self, arr: np.ndarray) -> mx.array:
             self._set_device()
             dtype = self._DTYPE_MAP[self.precision]
+            return mx.array(arr, dtype=dtype)
+
+        def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> mx.array:
+            if precision == "float64":
+                mx.set_default_device(mx.cpu)
+            else:
+                mx.set_default_device(mx.gpu)
+            dtype = self._DTYPE_MAP[precision]
             return mx.array(arr, dtype=dtype)
 
         def convert_out(self, obj: mx.array) -> np.ndarray:

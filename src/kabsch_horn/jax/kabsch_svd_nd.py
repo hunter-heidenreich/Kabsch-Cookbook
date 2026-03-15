@@ -119,7 +119,13 @@ def kabsch(
         raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
-    if orig_dtype in (jnp.float16, jnp.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = jnp.float64 if jnp.float64 in (P.dtype, Q.dtype) else jnp.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
         Q = Q.astype(jnp.float32)
 
@@ -219,7 +225,13 @@ def kabsch_umeyama(
         raise ValueError("At least 2 points are required for alignment")
 
     orig_dtype = P.dtype
-    if orig_dtype in (jnp.float16, jnp.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = jnp.float64 if jnp.float64 in (P.dtype, Q.dtype) else jnp.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
         Q = Q.astype(jnp.float32)
 

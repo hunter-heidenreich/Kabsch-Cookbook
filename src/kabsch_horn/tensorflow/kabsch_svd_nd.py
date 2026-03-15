@@ -102,7 +102,13 @@ def kabsch(P: tf.Tensor, Q: tf.Tensor) -> tuple[tf.Tensor, tf.Tensor, tf.Tensor]
     )
 
     orig_dtype = P.dtype
-    if orig_dtype in (tf.float16, tf.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = tf.float64 if tf.float64 in (P.dtype, Q.dtype) else tf.float32
+        P = tf.cast(P, target)
+        Q = tf.cast(Q, target)
+        orig_dtype = target
+    elif orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
@@ -204,7 +210,13 @@ def kabsch_umeyama(
     )
 
     orig_dtype = P.dtype
-    if orig_dtype in (tf.float16, tf.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = tf.float64 if tf.float64 in (P.dtype, Q.dtype) else tf.float32
+        P = tf.cast(P, target)
+        Q = tf.cast(Q, target)
+        orig_dtype = target
+    elif orig_dtype in (tf.float16, tf.bfloat16):
         P = tf.cast(P, tf.float32)
         Q = tf.cast(Q, tf.float32)
 
