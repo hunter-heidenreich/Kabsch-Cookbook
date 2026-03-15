@@ -326,7 +326,7 @@ class TestGradientVerification:
 
 
 _JAX_SVD_XFAIL = pytest.mark.xfail(
-    strict=True,
+    strict=False,
     reason=(
         "JAX custom_vjp does not implement SVD JVP; double backward through "
         "kabsch/kabsch_umeyama is unsupported upstream (jax.linalg.svd). "
@@ -346,9 +346,10 @@ class TestDoubleBackwardNonPyTorch:
     PyTorch double backward is tested in TestGradientVerification. This class
     extends that coverage to the remaining autodiff frameworks.
 
-    JAX kabsch/kabsch_umeyama are marked xfail(strict=True): JAX's custom_vjp
-    does not implement an SVD JVP, so double backward raises NotImplementedError
-    upstream. Horn algorithms use eigh and are unaffected.
+    JAX kabsch/kabsch_umeyama are marked xfail(strict=False): JAX's custom_vjp
+    may not implement an SVD JVP, so double backward can raise
+    NotImplementedError upstream. strict=False allows the test to pass if a
+    newer JAX version adds support. Horn algorithms use eigh and are unaffected.
     """
 
     @pytest.mark.skipif(not _JAX_AVAILABLE, reason="JAX not installed")
