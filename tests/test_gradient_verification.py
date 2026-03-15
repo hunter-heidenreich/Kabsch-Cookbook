@@ -16,8 +16,8 @@ from strategies import nearly_collinear_3d, nearly_coplanar_nd, point_clouds_3d
 from utils import compute_numeric_grad
 
 _FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
-_MAX_EXAMPLES_FD = 10 if _FAST else 50
-_MAX_EXAMPLES_DEGEN = 5 if _FAST else 20
+_MAX_EXAMPLES_FD = 20 if _FAST else 100
+_MAX_EXAMPLES_DEGEN = 10 if _FAST else 40
 
 
 class TestGradientVerification:
@@ -178,7 +178,7 @@ class TestGradientVerification:
     @pytest.mark.parametrize("wrt", ["P", "Q"])
     @settings(
         max_examples=_MAX_EXAMPLES_FD,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.too_slow],
         deadline=None,
     )
     @given(point_clouds_3d(), st.integers(0, 2**31 - 1))
@@ -256,7 +256,7 @@ class TestGradientVerification:
     @pytest.mark.parametrize("adapter", frameworks)
     @settings(
         max_examples=_MAX_EXAMPLES_DEGEN,
-        suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+        suppress_health_check=[HealthCheck.too_slow],
         deadline=None,
     )
     @given(st.one_of(nearly_collinear_3d(), nearly_coplanar_nd(dim=3)))

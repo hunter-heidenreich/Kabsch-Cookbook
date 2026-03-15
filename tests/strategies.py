@@ -8,11 +8,17 @@ _BOUNDED = {"allow_nan": False, "allow_infinity": False}
 
 @st.composite
 def point_clouds_nd(
-    draw: st.DrawFn, dim: int | None = None, n_points: int | None = None
+    draw: st.DrawFn,
+    dim: int | None = None,
+    n_points: int | None = None,
+    dims: list[int] | None = None,
 ) -> np.ndarray:
     """Random N-D point cloud (float64, bounded, no NaN/inf)."""
     if dim is None:
-        dim = draw(st.integers(2, 6))
+        if dims is not None:
+            dim = draw(st.sampled_from(dims))
+        else:
+            dim = draw(st.integers(2, 6))
     if n_points is None:
         n_points = draw(st.integers(dim + 2, dim * 4 + 4))
     return draw(
@@ -52,9 +58,12 @@ def aligned_pair_3d(draw: st.DrawFn) -> tuple:
 
 
 @st.composite
-def aligned_pair_nd(draw: st.DrawFn) -> tuple:
+def aligned_pair_nd(draw: st.DrawFn, dims: list[int] | None = None) -> tuple:
     """N-D version for kabsch/umeyama."""
-    dim = draw(st.integers(2, 6))
+    if dims is not None:
+        dim = draw(st.sampled_from(dims))
+    else:
+        dim = draw(st.integers(2, 6))
     P = draw(point_clouds_nd(dim=dim))
     A = draw(
         arrays(
@@ -86,8 +95,13 @@ def nearly_collinear_3d(draw: st.DrawFn) -> np.ndarray:
     norm = np.linalg.norm(direction)
     assume(norm > 1e-10)
     direction = direction / norm
-    t_vals = draw(arrays(np.float64, (n,), elements=st.floats(-10, 10, **_BOUNDED)))
-    assume(np.max(t_vals) - np.min(t_vals) > 1.0)
+    # Guarantee spread by drawing endpoints on opposite sides of the origin.
+    t_min = draw(st.floats(-10, -0.5, **_BOUNDED))
+    t_max = draw(st.floats(0.5, 10, **_BOUNDED))
+    t_rest = draw(
+        arrays(np.float64, (n - 2,), elements=st.floats(t_min, t_max, **_BOUNDED))
+    )
+    t_vals = np.concatenate([[t_min, t_max], t_rest])
     noise_scale = draw(st.floats(1e-4, 1e-2))
     noise = (
         draw(arrays(np.float64, (n, 3), elements=st.floats(-1, 1, **_BOUNDED)))
@@ -97,15 +111,19 @@ def nearly_collinear_3d(draw: st.DrawFn) -> np.ndarray:
 
 
 @st.composite
-def nearly_coplanar_nd(draw: st.DrawFn, dim: int | None = None) -> np.ndarray:
+def nearly_coplanar_nd(
+    draw: st.DrawFn, dim: int | None = None, dims: list[int] | None = None
+) -> np.ndarray:
     """N-D point cloud lying near a (dim-1) hyperplane (small normal noise).
 
     dim must be >= 3. In 2D the whole plane is the space, so "nearly coplanar"
     is undefined; zeroing the last coordinate would produce a collinear cloud.
     """
     if dim is None:
-        dim = draw(st.integers(3, 6))
-    assume(dim >= 3)
+        if dims is not None:
+            dim = draw(st.sampled_from(dims))
+        else:
+            dim = draw(st.integers(3, 6))
     n = draw(st.integers(dim + 2, dim * 4 + 4))
     P = draw(arrays(np.float64, (n, dim), elements=st.floats(-10, 10, **_BOUNDED)))
     noise_scale = draw(st.floats(1e-4, 1e-2))
@@ -119,9 +137,14 @@ def nearly_coplanar_nd(draw: st.DrawFn, dim: int | None = None) -> np.ndarray:
 
 
 @st.composite
-def extreme_scale_cloud(draw: st.DrawFn) -> tuple[np.ndarray, np.ndarray]:
+def extreme_scale_cloud(
+    draw: st.DrawFn, dims: list[int] | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """Pair (P, Q) with very large or very small coordinate magnitudes."""
-    dim = draw(st.integers(2, 6))
+    if dims is not None:
+        dim = draw(st.sampled_from(dims))
+    else:
+        dim = draw(st.integers(2, 6))
     n = draw(st.integers(dim + 2, dim * 4 + 4))
     scale = draw(st.sampled_from([1e-6, 1e-3, 1e3, 1e6]))
     P = (

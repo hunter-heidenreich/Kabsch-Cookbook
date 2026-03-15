@@ -36,6 +36,10 @@ class FrameworkAdapter(Generic[T]):
         """Indicates whether this adapter supports N-D inputs."""
         return True
 
+    def supported_dims(self) -> list[int]:
+        """Dims this adapter supports, for use in Hypothesis strategy construction."""
+        return list(range(2, 7))
+
     @property
     def supports_nan_input(self) -> bool:
         """Returns True if the framework propagates NaN through SVD without crashing."""
@@ -402,6 +406,9 @@ try:
         def supports_dim(self, dim: int) -> bool:
             # MLX implementation hardcodes 3x3 determinant correction
             return dim == 3
+
+        def supported_dims(self) -> list[int]:
+            return [3]
 
         @property
         def supports_nan_input(self) -> bool:

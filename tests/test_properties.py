@@ -20,13 +20,18 @@ from kabsch_horn import numpy as kabsch_np
 _FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
 
 _FRAMEWORK_SETTINGS = settings(
-    max_examples=10 if _FAST else 50,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+    max_examples=20 if _FAST else 100,
+    suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
 _NUMPY_SETTINGS = settings(
-    max_examples=20 if _FAST else 100,
+    max_examples=50 if _FAST else 200,
     suppress_health_check=[HealthCheck.too_slow],
+    deadline=None,
+)
+_NUMPY_FILTER_SETTINGS = settings(
+    max_examples=50 if _FAST else 200,
+    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
     deadline=None,
 )
 
@@ -35,14 +40,17 @@ class TestRotationInvariants:
     @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
+    @given(data=st.data())
     def test_rotation_is_orthogonal(
-        self, algo: str, adapter: FrameworkAdapter, aligned: tuple
+        self, algo: str, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, _R_true, _t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        dims = adapter.supported_dims()
         if algo in ALGORITHMS_3D_ONLY:
-            assume(dim == 3)
+            dims = [d for d in dims if d == 3]
+        aligned = data.draw(aligned_pair_nd(dims=dims))
+        P_np, _R_true, _t_true, Q_np, dim = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
@@ -53,14 +61,17 @@ class TestRotationInvariants:
     @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
+    @given(data=st.data())
     def test_rotation_det_is_positive(
-        self, algo: str, adapter: FrameworkAdapter, aligned: tuple
+        self, algo: str, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, _R_true, _t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        dims = adapter.supported_dims()
         if algo in ALGORITHMS_3D_ONLY:
-            assume(dim == 3)
+            dims = [d for d in dims if d == 3]
+        aligned = data.draw(aligned_pair_nd(dims=dims))
+        P_np, _R_true, _t_true, Q_np, _dim = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
@@ -70,20 +81,16 @@ class TestRotationInvariants:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(
-        st.one_of(
-            point_clouds_3d().map(lambda P: (P, "horn")),
-            point_clouds_3d().map(lambda P: (P, "horn_with_scale")),
-            point_clouds_nd().map(lambda P: (P, "kabsch")),
-            point_clouds_nd().map(lambda P: (P, "umeyama")),
-        )
-    )
-    def test_rmsd_is_nonnegative(
-        self, adapter: FrameworkAdapter, input_and_algo: tuple
-    ) -> None:
-        P_np, algo = input_and_algo
+    @given(data=st.data())
+    def test_rmsd_is_nonnegative(self, adapter: FrameworkAdapter, data) -> None:
+        dims = adapter.supported_dims()
+        algo = data.draw(st.sampled_from(ALGORITHMS))
+        if algo in ALGORITHMS_3D_ONLY:
+            use_dims = [d for d in dims if d == 3]
+        else:
+            use_dims = dims
+        P_np = data.draw(point_clouds_nd(dims=use_dims))
         dim = P_np.shape[-1]
-        assume(adapter.supports_dim(dim))
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
@@ -95,14 +102,15 @@ class TestRotationInvariants:
     @pytest.mark.parametrize("algo", list(ALGORITHMS_WITH_SCALE))
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(point_clouds_nd())
+    @given(data=st.data())
     def test_scale_is_positive(
-        self, algo: str, adapter: FrameworkAdapter, P_np: np.ndarray
+        self, algo: str, adapter: FrameworkAdapter, data
     ) -> None:
-        dim = P_np.shape[-1]
-        assume(adapter.supports_dim(dim))
+        dims = adapter.supported_dims()
         if algo in ALGORITHMS_3D_ONLY:
-            assume(dim == 3)
+            dims = [d for d in dims if d == 3]
+        P_np = data.draw(point_clouds_nd(dims=dims))
+        dim = P_np.shape[-1]
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
@@ -223,12 +231,12 @@ class TestKabschRecoveryND:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
+    @given(data=st.data())
     def test_kabsch_recovers_known_rotation_nd(
-        self, adapter: FrameworkAdapter, aligned: tuple
+        self, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, R_true, t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        aligned = data.draw(aligned_pair_nd(dims=adapter.supported_dims()))
+        P_np, R_true, t_true, Q_np, _dim = aligned
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
         assume(sv[-1] > 1e-3)
         P = adapter.convert_in(P_np)
@@ -244,12 +252,12 @@ class TestKabschRecoveryND:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
+    @given(data=st.data())
     def test_kabsch_umeyama_recovers_known_rotation_nd(
-        self, adapter: FrameworkAdapter, aligned: tuple
+        self, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, R_true, t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        aligned = data.draw(aligned_pair_nd(dims=adapter.supported_dims()))
+        P_np, R_true, t_true, Q_np, _dim = aligned
         P_c = P_np - P_np.mean(0)
         # Rotation and scale are recoverable only when the cloud spans all dimensions
         # with sufficient spread; use a strict singular-value threshold
@@ -268,18 +276,6 @@ class TestKabschRecoveryND:
         assert float(adapter.convert_out(rmsd)) == pytest.approx(
             0.0, rel=adapter.rtol, abs=adapter.atol * 100
         )
-
-
-_PAIR_SETTINGS = settings(
-    max_examples=20 if _FAST else 100,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-    deadline=None,
-)
-_NUMPY_FILTER_SETTINGS = settings(
-    max_examples=20 if _FAST else 100,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-    deadline=None,
-)
 
 
 @st.composite
@@ -330,7 +326,7 @@ class TestAlignmentInvariants:
 
         np.testing.assert_allclose(float(rmsd_fwd), float(rmsd_bwd), atol=1e-8)
 
-    @_NUMPY_FILTER_SETTINGS
+    @_NUMPY_SETTINGS
     @given(_paired_clouds_nd_composite(), st.integers(0, 2**31 - 1))
     def test_rmsd_invariant_to_rigid_transform(self, PQ: tuple, rng_seed: int) -> None:
         """RMSD is unchanged when both P and Q undergo the same rigid transform."""
@@ -349,7 +345,7 @@ class TestAlignmentInvariants:
         _, _, rmsd_shifted = kabsch_np.kabsch(P_np @ S.T + u, Q_np @ S.T + u)
         np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-6)
 
-    @_PAIR_SETTINGS
+    @_NUMPY_FILTER_SETTINGS
     @given(_paired_with_shift())
     def test_r_invariant_to_translation(self, PQdv: tuple) -> None:
         """Rotation R is unchanged when both P and Q are shifted by the same vector."""
@@ -361,7 +357,7 @@ class TestAlignmentInvariants:
         R2, _, _ = kabsch_np.kabsch(P_np + v, Q_np + v)
         np.testing.assert_allclose(R1, R2, atol=1e-6)
 
-    @_PAIR_SETTINGS
+    @_NUMPY_FILTER_SETTINGS
     @given(_paired_clouds_nd_composite(), st.floats(0.1, 10.0))
     def test_r_invariant_to_uniform_scale(self, PQ: tuple, c: float) -> None:
         """Rotation R is unchanged when both P and Q are scaled by the same scalar."""
@@ -405,7 +401,7 @@ class TestAlignmentInvariants:
         np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
         np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
 
-    @_NUMPY_FILTER_SETTINGS
+    @_NUMPY_SETTINGS
     @given(nearly_collinear_3d())
     def test_rotation_is_not_unique_when_cross_covariance_is_degenerate(
         self, P_np: np.ndarray
