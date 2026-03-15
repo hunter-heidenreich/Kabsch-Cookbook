@@ -129,6 +129,8 @@ class TestGradientVerification:
             P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
         )
 
+        # No FD multiplier needed: well-conditioned inputs, float64
+        # reference adapter, analytic grads in native precision.
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
@@ -169,6 +171,8 @@ class TestGradientVerification:
             P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
         )
 
+        # No FD multiplier needed: well-conditioned inputs, float64
+        # reference adapter, analytic grads in native precision.
         assert grad_analytic == pytest.approx(
             grad_numeric, rel=adapter.rtol, abs=adapter.atol
         )
@@ -193,8 +197,9 @@ class TestGradientVerification:
         """Compares analytic vs finite-difference gradients on Hypothesis inputs."""
         if adapter.precision in ("float16", "bfloat16", "float32"):
             pytest.skip(
-                "FD gradient check is vacuous for float16/bfloat16 (atol*50=5.0) "
-                "and imprecise for float32 (atol*50=2.5). float64 adapters cover "
+                "FD gradient check is vacuous for float16/bfloat16 (atol*10=1.0) "
+                "and borderline for float32 (atol*10=0.05, marginal given FD "
+                "truncation error on random inputs). float64 adapters cover "
                 "gradient correctness; deterministic FD tests cover float32 via "
                 "float64 reference."
             )

@@ -8,6 +8,12 @@ T = TypeVar("T")
 
 
 class FrameworkAdapter(Generic[T]):
+    # Base tolerances per precision tier.  Each atol is set well above machine
+    # epsilon to absorb accumulation through the SVD/eigh pipeline:
+    #   float16  eps ~6e-4,  atol=1e-1  (~150x eps)
+    #   bfloat16 eps ~8e-3,  atol=1e-1  (~12x eps)
+    #   float32  eps ~1.2e-7, atol=5e-3 (~40 000x eps)
+    #   float64  eps ~2.2e-16, atol=1e-5 (~4.5e10x eps)
     _TOLERANCES: ClassVar[dict[str, dict[str, float]]] = {
         "float16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
         "bfloat16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},

@@ -119,7 +119,7 @@ def check_transform_close(
     c_expected: float = 1.0,
     rmsd_expected: float | None = None,
     algo: str = "kabsch",
-    atol: float = 1e-5,
+    atol: float = 1e-5,  # float64 default; callers override for lower precisions
     rtol: float = 1e-5,
 ) -> None:
     __tracebackhide__ = True
