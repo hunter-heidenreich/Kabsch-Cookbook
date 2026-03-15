@@ -189,8 +189,13 @@ def kabsch(
     # Sign safely mapping 0 determinant to 1.0 instead of 0.0
     d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
-    B_diag = torch.ones(*d_sign.shape, D, dtype=P.dtype, device=P.device)
-    B_diag[..., -1] = d_sign
+    B_diag = torch.cat(
+        [
+            torch.ones(*d_sign.shape, D - 1, dtype=P.dtype, device=P.device),
+            d_sign.unsqueeze(-1),
+        ],
+        dim=-1,
+    )
 
     # 3. Optimal Rotation: R = V * B_diag * U^T
     R = torch.matmul(V * B_diag.unsqueeze(1), U.transpose(1, 2))  # Bx3x3
@@ -303,8 +308,13 @@ def kabsch_umeyama(
     d = torch.linalg.det(torch.matmul(V, U.transpose(1, 2)))
     d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
-    S_corr = torch.ones(*d_sign.shape, D, dtype=P.dtype, device=P.device)
-    S_corr[..., -1] = d_sign
+    S_corr = torch.cat(
+        [
+            torch.ones(*d_sign.shape, D - 1, dtype=P.dtype, device=P.device),
+            d_sign.unsqueeze(-1),
+        ],
+        dim=-1,
+    )
 
     # Scale
     _eps = torch.finfo(P.dtype).eps
