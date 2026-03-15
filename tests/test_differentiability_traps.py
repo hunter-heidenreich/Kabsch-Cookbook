@@ -440,7 +440,7 @@ class TestDifferentiabilityTraps:
 
     @pytest.mark.parametrize("algo", list(ALGORITHMS_WITH_SCALE))
     @pytest.mark.parametrize("adapter", frameworks)
-    def test_scale_factor_finite_for_half_precision_origin_collapse(
+    def test_scale_factor_finite_float16_origin_collapse(
         self,
         adapter: FrameworkAdapter,
         algo: str,
