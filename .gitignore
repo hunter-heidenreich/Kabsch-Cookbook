@@ -190,6 +190,7 @@ cython_debug/
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # GitHub Copilot (local-only instructions)
 .github/copilot-instructions.md
