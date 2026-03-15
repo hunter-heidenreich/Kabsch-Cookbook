@@ -11,7 +11,7 @@ Open an issue on GitHub with:
 
 ## Pre-commit Hooks
 
-The repo ships a `.pre-commit-config.yaml` with three categories of hooks:
+The repo ships a `.pre-commit-config.yaml` with four categories of hooks:
 
 - **File hygiene** (`pre-commit-hooks`): strips trailing whitespace, ensures a
   final newline, normalizes line endings, and blocks large files or merge

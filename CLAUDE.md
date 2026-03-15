@@ -54,13 +54,13 @@ The project uses `uv` for dependency management and task running. All dev depend
 - `tests/conftest.py` - Shared pytest fixtures (`dim`, `identity_points`, `known_transform_points`, `coplanar_points`, etc.) and a `pytest_collection_modifyitems` hook that filters out tests where the adapter's `supports_dim()` returns False (e.g., MLX only runs 3D tests).
 - `tests/utils.py` - `compute_numeric_grad` (finite-difference gradient checker) and `check_transform_close` helper.
 
-**Test files**: `test_forward_pass_equivalence.py`, `test_differentiability_traps.py`, `test_gradient_verification.py`, `test_catastrophic_cancellation.py`, `test_degeneracy.py`, `test_error_handling.py`.
+**Test files**: `test_forward_pass_equivalence.py`, `test_properties.py`, `test_differentiability_traps.py`, `test_gradient_verification.py`, `test_catastrophic_cancellation.py`, `test_degeneracy.py`, `test_error_handling.py`, `test_rmsd_wrappers.py`, `test_reference_validation.py`, `test_mixed_dtype.py`, `test_mlx_float64_warning.py`, `test_tf_dynamic_validation.py`.
 
 **JAX note**: `conftest.py` sets `JAX_ENABLE_X64=True` to allow float64. This must remain as the first env-var set before jax imports.
 
 ## Writing Style (for docs/comments)
 
 Per `.github/copilot-instructions.md`:
-- No em dashes (`--` is fine, `--` not `--`)
+- No em dashes (double-hyphen `--` is fine, em dash `—` is not)
 - No negation/contrastive reframes ("not X, but Y")
 - Clear and concise for a broad ML audience

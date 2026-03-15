@@ -24,7 +24,7 @@ The Umeyama extension adds a global scale factor \(c\) computed from the ratio o
 
 ### Horn's method (3D quaternions)
 
-Horn's method applies strictly to 3D. It constructs a 4x4 symmetric matrix from the cross-covariance and finds the eigenvector corresponding to the largest eigenvalue. This eigenvector is a unit quaternion representing the optimal rotation. The closed-form quaternion approach avoids the reflection trap that SVD methods must handle with a determinant sign correction.
+Horn's method applies strictly to 3D. It constructs a 4x4 symmetric matrix from the cross-covariance and finds the eigenvector corresponding to the largest eigenvalue. This eigenvector is a unit quaternion representing the optimal rotation. The quaternion formulation inherently produces proper rotations (\(\det(R) = +1\)) without a separate determinant correction step.
 
 ## Stabilizing gradients
 
@@ -32,7 +32,7 @@ Point cloud alignments during neural network training often encounter degenerate
 
 ### SafeSVD and SafeEigh
 
-The autograd wrappers for PyTorch, JAX, TensorFlow, and MLX override the standard backward pass. During backpropagation, they mask near-zero differences between singular values (or eigenvalues) with \(\varepsilon = \text{finfo}(\text{dtype}).\text{eps}\):
+The autograd wrappers for PyTorch, JAX, TensorFlow, and MLX override the standard backward pass. During backpropagation, they zero out gradient terms where the difference between singular values (or eigenvalues) falls below \(\varepsilon = \text{finfo}(\text{dtype}).\text{eps}\):
 
 \[
 \frac{1}{\sigma_i - \sigma_j} \rightarrow \begin{cases} \frac{1}{\sigma_i - \sigma_j} & \text{if } |\sigma_i - \sigma_j| > \varepsilon \\ 0 & \text{otherwise} \end{cases}
