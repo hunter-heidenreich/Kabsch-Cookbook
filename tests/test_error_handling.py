@@ -3,10 +3,11 @@ import math
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
+from conftest import ALGORITHMS, ALGORITHMS_3D_ONLY
 
 
 class TestErrorHandling:
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_point_counts_differ(
         self,
@@ -29,7 +30,7 @@ class TestErrorHandling:
         with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_dims_differ(
         self,
@@ -51,7 +52,9 @@ class TestErrorHandling:
         with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize(
+        "algo", [a for a in ALGORITHMS if a not in ALGORITHMS_3D_ONLY]
+    )
     @pytest.mark.parametrize("adapter", frameworks)
     def test_handles_underdetermined_systems_gracefully(
         self,
@@ -73,7 +76,7 @@ class TestErrorHandling:
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
 
@@ -84,7 +87,9 @@ class TestErrorHandling:
         # An underdetermined system can always be fit perfectly.
         assert rmsd == pytest.approx(0.0, abs=adapter.atol)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize(
+        "algo", [a for a in ALGORITHMS if a not in ALGORITHMS_3D_ONLY]
+    )
     @pytest.mark.parametrize("adapter", frameworks)
     def test_propagates_nans_gracefully(
         self,
@@ -116,7 +121,7 @@ class TestErrorHandling:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
 
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
 
@@ -127,6 +132,20 @@ class TestErrorHandling:
                 )
             else:
                 assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
+
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
+    @pytest.mark.parametrize(
+        "dim", [pytest.param(2, id="2D"), pytest.param(4, id="4D")]
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_horn_raises_error_for_non_3d_input(self, adapter, algo, dim):
+        """Horn algorithms must reject inputs where D != 3."""
+        rng = np.random.default_rng(42)
+        P = adapter.convert_in(rng.standard_normal((5, dim)).astype(np.float64))
+        Q = adapter.convert_in(rng.standard_normal((5, dim)).astype(np.float64))
+        func = adapter.get_transform_func(algo)
+        with pytest.raises(ValueError, match="3D"):
+            func(P, Q)
 
 
 class TestNumpySinglePointRejection:

@@ -68,7 +68,13 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
-    if orig_dtype in (mx.float16, mx.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = mx.float64 if mx.float64 in (P.dtype, Q.dtype) else mx.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
         Q = Q.astype(mx.float32)
 
@@ -179,7 +185,13 @@ def horn_with_scale(
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
-    if orig_dtype in (mx.float16, mx.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = mx.float64 if mx.float64 in (P.dtype, Q.dtype) else mx.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (mx.float16, mx.bfloat16):
         P = P.astype(mx.float32)
         Q = Q.astype(mx.float32)
 

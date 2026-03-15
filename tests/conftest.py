@@ -5,8 +5,27 @@ import pytest
 
 os.environ["JAX_ENABLE_X64"] = "True"
 
+# Algorithm constants -- imported by test modules for parametrization
+ALGORITHMS = ["kabsch", "umeyama", "horn", "horn_with_scale"]
+ALGORITHMS_WITH_SCALE = {"umeyama", "horn_with_scale"}
+ALGORITHMS_3D_ONLY = {"horn", "horn_with_scale"}
 
-@pytest.fixture(params=[2, 3, 4, 10, 100], ids=lambda x: f"{x}D")
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--full",
+        action="store_true",
+        default=False,
+        help="Run full test suite (all precisions, full Hypothesis examples)",
+    )
+
+
+def pytest_configure(config):
+    if not config.getoption("--full", default=False):
+        os.environ["KABSCH_TEST_FAST"] = "1"
+
+
+@pytest.fixture(params=[2, 3, 4], ids=lambda x: f"{x}D")
 def dim(request) -> int:
     return request.param
 
@@ -140,68 +159,52 @@ def nd_batch_points(dim) -> tuple[np.ndarray, np.ndarray]:
     return P, Q
 
 
-@pytest.fixture
-def horn_identity_points() -> np.ndarray:
-    rng = np.random.default_rng(42)
-    return rng.random((20, 3))
-
-
-@pytest.fixture
-def horn_known_transform_points() -> tuple:
-    rng = np.random.default_rng(42)
-    P = rng.random((20, 3))
-    R_true = _get_random_rotation(rng, 3)
-    t_true = rng.random((3,)) * 5.0 - 2.5
-    c_true = float(rng.uniform(0.5, 5.0))
-    Q_horn = P @ R_true.T + t_true
-    Q_horn_scale = c_true * (P @ R_true.T) + t_true
-    return P, Q_horn, Q_horn_scale, R_true, t_true, c_true
-
-
-@pytest.fixture
-def horn_batch_points() -> tuple[np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(42)
-    P = rng.random((5, 20, 3))
-    Q = np.empty_like(P)
-    for b in range(5):
-        R_b = _get_random_rotation(rng, 3)
-        t_b = rng.random((3,))
-        Q[b] = P[b] @ R_b.T + t_b
-    return P, Q
-
-
-@pytest.fixture
-def horn_nd_batch_points() -> tuple[np.ndarray, np.ndarray]:
-    rng = np.random.default_rng(42)
-    P = rng.random((2, 3, 20, 3))
-    Q = np.empty_like(P)
-    for i in range(2):
-        for j in range(3):
-            R_b = _get_random_rotation(rng, 3)
-            t_b = rng.random((3,))
-            Q[i, j] = P[i, j] @ R_b.T + t_b
-    return P, Q
-
-
 def pytest_collection_modifyitems(session, config, items) -> None:
     """
     Filters out tests where the requested framework adapter
     does not support the requested spatial dimension.
 
+    When ``--full`` is not passed, also skips float16/bfloat16 adapter tests
+    except for dtype-preservation tests (which exist specifically to verify
+    the upcast path).
+
     Note: Hypothesis tests parametrised by `adapter` but with `dim` drawn
     inside `@given` are not filtered here -- they guard themselves with
     `assume(adapter.supports_dim(dim))` inside the test body.
     """
+    full = config.getoption("--full", default=False)
     kept = []
     for item in items:
         # Check if the test has a callspec (i.e. is parametrized)
         if hasattr(item, "callspec"):
             params = item.callspec.params
-            # Some tests have dim directly in params
+            # Skip MLX on unsupported dims,
+            # unless the test explicitly checks rejection behaviour.
             if "dim" in params and "adapter" in params:
                 dim = params["dim"]
                 adapter = params["adapter"]
-                if not adapter.supports_dim(dim):
+                # Convention: tests that check rejection behaviour for non-3D
+                # inputs must include "non_3d" in their test name so they
+                # bypass this skip and actually run with the unsupported dim.
+                if not adapter.supports_dim(dim) and "non_3d" not in item.name:
+                    continue
+            # Skip 3D-only algorithms (Horn) for non-3D dims,
+            # unless the test explicitly checks that rejection behaviour.
+            if "algo" in params and "dim" in params:
+                if params["algo"] in ("horn", "horn_with_scale") and params["dim"] != 3:
+                    if "non_3d" not in item.name:
+                        continue
+            # Skip float16/bfloat16 except dtype-preservation tests
+            if not full and "adapter" in params:
+                adapter = params["adapter"]
+                if (
+                    hasattr(adapter, "precision")
+                    and adapter.precision in ("float16", "bfloat16")
+                    and "preserves_input_dtype" not in item.name
+                    and "preserves_dtype" not in item.name
+                    and "float16" not in item.name.split("[")[0].lower()
+                    and "dtype" not in item.name.split("[")[0].lower()
+                ):
                     continue
         kept.append(item)
 

@@ -68,7 +68,13 @@ def horn(
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
-    if orig_dtype in (torch.float16, torch.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = torch.float64 if torch.float64 in (P.dtype, Q.dtype) else torch.float32
+        P = P.to(target)
+        Q = Q.to(target)
+        orig_dtype = target
+    elif orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
         Q = Q.to(torch.float32)
 
@@ -191,7 +197,13 @@ def horn_with_scale(
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
     orig_dtype = P.dtype
-    if orig_dtype in (torch.float16, torch.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = torch.float64 if torch.float64 in (P.dtype, Q.dtype) else torch.float32
+        P = P.to(target)
+        Q = Q.to(target)
+        orig_dtype = target
+    elif orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
         Q = Q.to(torch.float32)
 
