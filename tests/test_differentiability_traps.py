@@ -269,6 +269,7 @@ class TestDifferentiabilityTraps:
 
         grad = adapter.get_grad(P, Q, rmsd_func, seed=None, wrt=wrt)
 
+        # Gradient norm below atol means we are at or near a minimum; skip descent check
         if np.linalg.norm(grad) < adapter.atol:
             assert np.isfinite(grad).all()
             return
@@ -286,7 +287,7 @@ class TestDifferentiabilityTraps:
         rmsd_orig = float(adapter.convert_out(rmsd_func(P, Q)[0]))
         rmsd_new = float(adapter.convert_out(rmsd_func(P_new, Q_new)[0]))
 
-        # With lower precision, floating point noise around zero can mask the descent.
+        # eps slack: float noise around zero can mask descent at low precision
         assert rmsd_new < rmsd_orig + adapter.eps
 
     @pytest.mark.parametrize("adapter", frameworks)

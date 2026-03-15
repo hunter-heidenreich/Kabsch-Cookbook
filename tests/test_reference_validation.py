@@ -62,6 +62,8 @@ class TestReferenceValidation:
         res = adapter.kabsch(P, Q)
         R_ours = adapter.convert_out(res[0])
 
+        # 10x: cross-library SVD implementations (LAPACK variants) diverge
+        # by O(eps * cond(H))
         np.testing.assert_allclose(R_ours, R_ref, atol=adapter.atol * 10)
 
     @pytest.mark.parametrize("seed", _SEEDS)
@@ -79,6 +81,8 @@ class TestReferenceValidation:
         res = adapter.horn(P, Q)
         R_ours = adapter.convert_out(res[0])
 
+        # 10x: cross-library comparison; scipy quaternion solver uses different
+        # internals
         np.testing.assert_allclose(R_ours, R_ref, atol=adapter.atol * 10)
 
     @pytest.mark.parametrize("seed", _SEEDS)
@@ -91,6 +95,7 @@ class TestReferenceValidation:
         R_ref = _reference_kabsch_3d(P_np, Q_np)
         R_ours, _, _, _ = kabsch_np.kabsch_umeyama(P_np, Q_np)
 
+        # Cross-library: our SVD-based rotation vs rmsd package's LAPACK SVD
         np.testing.assert_allclose(R_ours, R_ref, atol=1e-5)
 
     @pytest.mark.parametrize("seed", _SEEDS)
@@ -106,4 +111,5 @@ class TestReferenceValidation:
 
         _, _, rmsd_ours = kabsch_np.kabsch(P_np, Q_np)
 
+        # Cross-library: our RMSD vs rmsd package's kabsch_rmsd
         assert float(rmsd_ours) == pytest.approx(float(rmsd_ref), abs=1e-5)

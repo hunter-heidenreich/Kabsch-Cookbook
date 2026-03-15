@@ -11,7 +11,7 @@ class FrameworkAdapter(Generic[T]):
     _TOLERANCES: ClassVar[dict[str, dict[str, float]]] = {
         "float16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
         "bfloat16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
-        "float32": {"eps": 1e-3, "atol": 5e-2, "rtol": 5e-2},
+        "float32": {"eps": 1e-3, "atol": 5e-3, "rtol": 5e-3},
         "float64": {"eps": 1e-5, "atol": 1e-5, "rtol": 1e-5},
     }
 

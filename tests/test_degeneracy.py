@@ -39,6 +39,8 @@ class TestDegeneracy:
         R_res = adapter.convert_out(res[0])
 
         # Rotation should be orthogonal with positive determinant
+        # 10x: degenerate cross-covariance yields arbitrary SVD vectors;
+        # fallback rotation needs slack
         assert np.allclose(R_res @ R_res.T, np.eye(dim), atol=adapter.atol * 10)
         assert np.linalg.det(R_res) > 0
         assert np.isfinite(adapter.convert_out(res[-1]))  # rmsd
@@ -69,10 +71,13 @@ class TestDegeneracy:
 
         res = func(P, Q)
         R_np = adapter.convert_out(res[0])
+        # 10x: rank-deficient cross-covariance; fallback vectors accumulate
+        # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
         assert np.linalg.det(R_np) > 0
+        # RMSD for identical clouds: centering cancellation error is O(eps * max_val)
         assert float(adapter.convert_out(res[-1])) == pytest.approx(
-            0.0, abs=adapter.atol * 10
+            0.0, abs=adapter.atol
         )
 
     @pytest.mark.parametrize(
@@ -98,10 +103,13 @@ class TestDegeneracy:
 
         res = func(P, Q)
         R_np = adapter.convert_out(res[0])
+        # 10x: rank-deficient cross-covariance; fallback vectors accumulate
+        # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
         assert np.linalg.det(R_np) > 0
+        # RMSD for identical clouds: centering cancellation error is O(eps * max_val)
         assert float(adapter.convert_out(res[-1])) == pytest.approx(
-            0.0, abs=adapter.atol * 10
+            0.0, abs=adapter.atol
         )
 
     @pytest.mark.parametrize(
@@ -127,6 +135,8 @@ class TestDegeneracy:
 
         res = func(P, Q)
         R_np = adapter.convert_out(res[0])
+        # 10x: rank-deficient cross-covariance; fallback vectors accumulate
+        # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
         assert np.linalg.det(R_np) > 0
         assert np.isfinite(float(adapter.convert_out(res[-1])))
@@ -155,6 +165,8 @@ class TestDegeneracy:
 
         res = func(P, Q)
         R_np = adapter.convert_out(res[0])
+        # 10x: rank-deficient cross-covariance; fallback vectors accumulate
+        # rounding in R @ R.T
         assert np.allclose(R_np @ R_np.T, np.eye(3), atol=adapter.atol * 10)
         assert np.linalg.det(R_np) > 0
         assert np.isfinite(float(adapter.convert_out(res[-1])))

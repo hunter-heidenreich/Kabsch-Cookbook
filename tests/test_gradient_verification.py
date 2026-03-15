@@ -91,7 +91,7 @@ class TestGradientVerification:
                 grads_seq[i, j] = g
 
         assert grad_batch == pytest.approx(
-            grads_seq, rel=adapter.rtol, abs=adapter.atol * 2
+            grads_seq, rel=adapter.rtol, abs=adapter.atol
         )
 
     @pytest.mark.parametrize("wrt", ["P", "Q"])
@@ -214,10 +214,11 @@ class TestGradientVerification:
             P_np, Q_np, ref_adapter, func_ref, wrt=wrt, weight_adapter=adapter
         )
 
-        # 50x multiplier accounts for finite-difference truncation error and
-        # floating-point cancellation in near-singular configurations.
+        # 10x multiplier accounts for finite-difference truncation error;
+        # only float64 reaches here (float16/bfloat16/float32 are skipped above)
+        # and near-singular inputs are rejected (sv[-1] > 0.1)
         np.testing.assert_allclose(
-            grad_analytic, grad_numeric, atol=adapter.atol * 50, rtol=adapter.rtol
+            grad_analytic, grad_numeric, atol=adapter.atol * 10, rtol=adapter.rtol
         )
 
     @pytest.mark.parametrize("precision", ["float32", "float64"])
@@ -307,7 +308,9 @@ class TestGradientVerification:
         rmsd_orig = float(adapter.convert_out(rmsd_func(P, Q)[0]))
         rmsd_step = float(adapter.convert_out(rmsd_func(P_step, Q)[0]))
 
-        assert rmsd_step <= rmsd_orig * 1.5 + 1e-4, (
+        # Relative bound: gradient step should not increase RMSD by more than 1%
+        # plus eps for near-zero RMSD
+        assert rmsd_step <= rmsd_orig * 1.01 + adapter.eps, (
             f"RMSD increased after gradient step: {rmsd_orig:.6f} -> {rmsd_step:.6f}"
         )
 
