@@ -201,7 +201,7 @@ class TestRejects1DInput:
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
 
-        with pytest.raises((ValueError, Exception), match=r"2D"):
+        with pytest.raises(ValueError, match=r"at least 2D"):
             func(P, Q)
 
 
