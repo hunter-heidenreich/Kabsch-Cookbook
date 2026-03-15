@@ -61,7 +61,7 @@ The project uses `uv` for dependency management and task running. All dev depend
 
 ## Writing Style (for docs/comments)
 
-Per `.github/copilot-instructions.md`:
+Writing rules:
 - No em dashes (double-hyphen `--` is fine, em dash `—` is not)
 - No negation/contrastive reframes ("not X, but Y")
 - Clear and concise for a broad ML audience
