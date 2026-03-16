@@ -1,6 +1,9 @@
+import os
+
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
+from conftest import ALGORITHMS, ALGORITHMS_3D_ONLY, ALGORITHMS_WITH_SCALE
 from hypothesis import HealthCheck, assume, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
@@ -14,122 +17,103 @@ from strategies import (
 
 from kabsch_horn import numpy as kabsch_np
 
+_FAST = os.environ.get("KABSCH_TEST_FAST") == "1"
+
 _FRAMEWORK_SETTINGS = settings(
-    max_examples=50,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
+    max_examples=20 if _FAST else 100,
+    suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
 _NUMPY_SETTINGS = settings(
-    max_examples=100,
+    max_examples=50 if _FAST else 200,
     suppress_health_check=[HealthCheck.too_slow],
     deadline=None,
 )
 
 
 class TestRotationInvariants:
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
-    def test_rotation_is_orthogonal_kabsch(
-        self, adapter: FrameworkAdapter, aligned: tuple
+    @given(data=st.data())
+    def test_rotation_is_orthogonal(
+        self, algo: str, adapter: FrameworkAdapter, data
     ) -> None:
+        dims = adapter.supported_dims()
+        if algo in ALGORITHMS_3D_ONLY:
+            dims = [d for d in dims if d == 3]
+        aligned = data.draw(aligned_pair_nd(dims=dims))
         P_np, _R_true, _t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        res = adapter.kabsch(P, Q)
+        func = adapter.get_transform_func(algo)
+        res = func(P, Q)
         R = adapter.convert_out(res[0])
+        # 10x: each entry of R @ R.T is a D-term dot product with O(D * eps) error,
+        # layered on top of SVD rounding already in atol
         np.testing.assert_allclose(R @ R.T, np.eye(dim), atol=adapter.atol * 10)
 
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_3d())
-    def test_rotation_is_orthogonal_horn(
-        self, adapter: FrameworkAdapter, aligned: tuple
+    @given(data=st.data())
+    def test_rotation_det_is_positive(
+        self, algo: str, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, _R_true, _t_true, Q_np = aligned
+        dims = adapter.supported_dims()
+        if algo in ALGORITHMS_3D_ONLY:
+            dims = [d for d in dims if d == 3]
+        aligned = data.draw(aligned_pair_nd(dims=dims))
+        P_np, _R_true, _t_true, Q_np, _dim = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        res = adapter.horn(P, Q)
+        func = adapter.get_transform_func(algo)
+        res = func(P, Q)
         R = adapter.convert_out(res[0])
-        np.testing.assert_allclose(R @ R.T, np.eye(3), atol=adapter.atol * 10)
-
-    @pytest.mark.parametrize("adapter", frameworks)
-    @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
-    def test_rotation_det_is_positive_kabsch(
-        self, adapter: FrameworkAdapter, aligned: tuple
-    ) -> None:
-        P_np, _R_true, _t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        res = adapter.kabsch(P, Q)
-        R = adapter.convert_out(res[0])
+        # 10x: determinant accumulates O(D) multiplications of rounded entries
         assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol * 10)
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_3d())
-    def test_rotation_det_is_positive_horn(
-        self, adapter: FrameworkAdapter, aligned: tuple
-    ) -> None:
-        P_np, _R_true, _t_true, Q_np = aligned
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        res = adapter.horn(P, Q)
-        R = adapter.convert_out(res[0])
-        assert float(np.linalg.det(R)) == pytest.approx(1.0, abs=adapter.atol * 10)
-
-    @pytest.mark.parametrize("adapter", frameworks)
-    @_FRAMEWORK_SETTINGS
-    @given(
-        st.one_of(
-            point_clouds_3d().map(lambda P: (P, "horn")),
-            point_clouds_3d().map(lambda P: (P, "horn_with_scale")),
-            point_clouds_nd().map(lambda P: (P, "kabsch")),
-            point_clouds_nd().map(lambda P: (P, "umeyama")),
-        )
-    )
-    def test_rmsd_is_nonnegative(
-        self, adapter: FrameworkAdapter, input_and_algo: tuple
-    ) -> None:
-        P_np, algo = input_and_algo
+    @given(data=st.data())
+    def test_rmsd_is_nonnegative(self, adapter: FrameworkAdapter, data) -> None:
+        dims = adapter.supported_dims()
+        algo = data.draw(st.sampled_from(ALGORITHMS))
+        if algo in ALGORITHMS_3D_ONLY:
+            use_dims = [d for d in dims if d == 3]
+        else:
+            use_dims = dims
+        P_np = data.draw(point_clouds_nd(dims=use_dims))
         dim = P_np.shape[-1]
-        assume(adapter.supports_dim(dim))
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         func = adapter.get_transform_func(algo)
         res = func(P, Q)
         rmsd = float(adapter.convert_out(res[-1]))
-        assert rmsd >= -adapter.atol * 10
+        assert rmsd >= 0
 
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_WITH_SCALE))
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(point_clouds_nd())
-    def test_scale_is_positive_umeyama(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
+    @given(data=st.data())
+    def test_scale_is_positive(
+        self, algo: str, adapter: FrameworkAdapter, data
     ) -> None:
+        dims = adapter.supported_dims()
+        if algo in ALGORITHMS_3D_ONLY:
+            dims = [d for d in dims if d == 3]
+        P_np = data.draw(point_clouds_nd(dims=dims))
         dim = P_np.shape[-1]
-        assume(adapter.supports_dim(dim))
         Q_np = P_np + np.random.default_rng(0).random((1, dim)) * 0.5
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        res = adapter.kabsch_umeyama(P, Q)
-        c = float(adapter.convert_out(res[2]))
-        assert c >= 0
-
-    @pytest.mark.parametrize("adapter", frameworks)
-    @_FRAMEWORK_SETTINGS
-    @given(point_clouds_3d())
-    def test_scale_is_positive_horn_with_scale(
-        self, adapter: FrameworkAdapter, P_np: np.ndarray
-    ) -> None:
-        Q_np = P_np + np.random.default_rng(0).random((1, 3)) * 0.5
-        P = adapter.convert_in(P_np)
-        Q = adapter.convert_in(Q_np)
-        res = adapter.horn_with_scale(P, Q)
+        func = adapter.get_transform_func(algo)
+        res = func(P, Q)
         c = float(adapter.convert_out(res[2]))
         assert c >= 0
 
@@ -155,9 +139,11 @@ class TestCrossAlgorithmConsistency:
         Q_np = P_np + shift
         R_k, t_k, rmsd_k = kabsch_np.kabsch(P_np, Q_np)
         R_h, t_h, rmsd_h = kabsch_np.horn(P_np, Q_np)
-        np.testing.assert_allclose(R_k, R_h, atol=1e-5)
-        np.testing.assert_allclose(t_k, t_h, atol=1e-5)
-        np.testing.assert_allclose(float(rmsd_k), float(rmsd_h), atol=1e-5)
+        # Cross-algorithm: SVD-based kabsch vs eigen-based horn may diverge by
+        # O(eps * cond(H)^2); with sv[-1] > 1e-3, cond < 1000 so error < 1e-9
+        np.testing.assert_allclose(R_k, R_h, atol=1e-8)
+        np.testing.assert_allclose(t_k, t_h, atol=1e-8)
+        np.testing.assert_allclose(float(rmsd_k), float(rmsd_h), atol=1e-8)
 
     @_NUMPY_SETTINGS
     @given(
@@ -177,10 +163,12 @@ class TestCrossAlgorithmConsistency:
         Q_np = P_np + shift
         R_u, t_u, c_u, rmsd_u = kabsch_np.kabsch_umeyama(P_np, Q_np)
         R_h, t_h, c_h, rmsd_h = kabsch_np.horn_with_scale(P_np, Q_np)
-        np.testing.assert_allclose(R_u, R_h, atol=1e-5)
-        np.testing.assert_allclose(t_u, t_h, atol=1e-5)
-        np.testing.assert_allclose(float(c_u), float(c_h), atol=1e-5)
-        np.testing.assert_allclose(float(rmsd_u), float(rmsd_h), atol=1e-5)
+        # Cross-algorithm: SVD-based umeyama vs eigen-based horn_with_scale;
+        # with sv[-1] > 1e-3, cond < 1000 so error < 1e-9
+        np.testing.assert_allclose(R_u, R_h, atol=1e-8)
+        np.testing.assert_allclose(t_u, t_h, atol=1e-8)
+        np.testing.assert_allclose(float(c_u), float(c_h), atol=1e-8)
+        np.testing.assert_allclose(float(rmsd_u), float(rmsd_h), atol=1e-8)
 
     @_NUMPY_SETTINGS
     @given(aligned_pair_nd())
@@ -197,9 +185,10 @@ class TestCrossAlgorithmConsistency:
         assume(sv[-1] > 1e-3)
         R_k, t_k, _ = kabsch_np.kabsch(P_np, Q_np)
         R_u, t_u, c_u, _ = kabsch_np.kabsch_umeyama(P_np, Q_np)
-        np.testing.assert_allclose(R_u, R_k, atol=1e-5)
-        np.testing.assert_allclose(t_u, t_k, atol=1e-5)
-        np.testing.assert_allclose(float(c_u), 1.0, atol=1e-5)
+        # Same SVD path; only the trivial scale=1 computation adds rounding
+        np.testing.assert_allclose(R_u, R_k, atol=1e-10)
+        np.testing.assert_allclose(t_u, t_k, atol=1e-10)
+        np.testing.assert_allclose(float(c_u), 1.0, atol=1e-10)
 
     @_NUMPY_SETTINGS
     @given(aligned_pair_3d())
@@ -209,9 +198,10 @@ class TestCrossAlgorithmConsistency:
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
         assume(sv[-1] > 1e-3)
         R, t, rmsd = kabsch_np.kabsch(P_np, Q_np)
-        np.testing.assert_allclose(R, R_true, atol=1e-6)
-        np.testing.assert_allclose(t, t_true, atol=1e-6)
-        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-6)
+        # SVD on well-conditioned H (sv[-1] > 1e-3) recovers R to ~eps * cond(H) ~ 1e-11
+        np.testing.assert_allclose(R, R_true, atol=1e-10)
+        np.testing.assert_allclose(t, t_true, atol=1e-10)
+        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-10)
 
 
 class TestAlignmentOptimality:
@@ -237,6 +227,7 @@ class TestAlignmentOptimality:
             np.sqrt(np.mean(np.sum((aligned_perturbed - Q_c) ** 2, axis=-1)))
         )
 
+        # Optimal R must beat any perturbed R; 1e-6 absorbs float64 rounding
         assert float(rmsd_opt) <= rmsd_perturbed + 1e-6
 
 
@@ -245,63 +236,55 @@ class TestKabschRecoveryND:
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
+    @given(data=st.data())
     def test_kabsch_recovers_known_rotation_nd(
-        self, adapter: FrameworkAdapter, aligned: tuple
+        self, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, R_true, t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        aligned = data.draw(aligned_pair_nd(dims=adapter.supported_dims()))
+        P_np, R_true, t_true, Q_np, _dim = aligned
         sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
-        assume(sv[-1] > 1e-3)
+        assume(sv[-1] > 0.1)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         R, t, rmsd = adapter.kabsch(P, Q)
         R = adapter.convert_out(R)
         t = adapter.convert_out(t)
-        assert R == pytest.approx(R_true, rel=adapter.rtol, abs=adapter.atol * 100)
-        assert t == pytest.approx(t_true, rel=adapter.rtol, abs=adapter.atol * 100)
+        # 10x: SVD + reconstruct compounds rounding; with sv[-1] > 0.1 (cond < 500),
+        # pipeline error is O(D * eps * cond) ~ 10x atol
+        assert R == pytest.approx(R_true, rel=adapter.rtol, abs=adapter.atol * 10)
+        assert t == pytest.approx(t_true, rel=adapter.rtol, abs=adapter.atol * 10)
         assert float(adapter.convert_out(rmsd)) == pytest.approx(
-            0.0, rel=adapter.rtol, abs=adapter.atol * 100
+            0.0, rel=adapter.rtol, abs=adapter.atol * 10
         )
 
     @pytest.mark.parametrize("adapter", frameworks)
     @_FRAMEWORK_SETTINGS
-    @given(aligned_pair_nd())
+    @given(data=st.data())
     def test_kabsch_umeyama_recovers_known_rotation_nd(
-        self, adapter: FrameworkAdapter, aligned: tuple
+        self, adapter: FrameworkAdapter, data
     ) -> None:
-        P_np, R_true, t_true, Q_np, dim = aligned
-        assume(adapter.supports_dim(dim))
+        aligned = data.draw(aligned_pair_nd(dims=adapter.supported_dims()))
+        P_np, R_true, t_true, Q_np, _dim = aligned
         P_c = P_np - P_np.mean(0)
         # Rotation and scale are recoverable only when the cloud spans all dimensions
         # with sufficient spread; use a strict singular-value threshold
         sv = np.linalg.svd(P_c, compute_uv=False)
-        assume(sv[-1] > 1e-3)
+        assume(sv[-1] > 0.1)
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
         R, t, c, rmsd = adapter.kabsch_umeyama(P, Q)
         R = adapter.convert_out(R)
         t = adapter.convert_out(t)
-        assert R == pytest.approx(R_true, rel=adapter.rtol, abs=adapter.atol * 100)
-        assert t == pytest.approx(t_true, rel=adapter.rtol, abs=adapter.atol * 100)
+        # 10x: SVD + reconstruct compounds rounding; with sv[-1] > 0.1 (cond < 500),
+        # pipeline error is O(D * eps * cond) ~ 10x atol; scale DOF adds minor rounding
+        assert R == pytest.approx(R_true, rel=adapter.rtol, abs=adapter.atol * 10)
+        assert t == pytest.approx(t_true, rel=adapter.rtol, abs=adapter.atol * 10)
         assert float(adapter.convert_out(c)) == pytest.approx(
-            1.0, rel=adapter.rtol, abs=adapter.atol * 100
+            1.0, rel=adapter.rtol, abs=adapter.atol * 10
         )
         assert float(adapter.convert_out(rmsd)) == pytest.approx(
-            0.0, rel=adapter.rtol, abs=adapter.atol * 100
+            0.0, rel=adapter.rtol, abs=adapter.atol * 10
         )
-
-
-_PAIR_SETTINGS = settings(
-    max_examples=100,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-    deadline=None,
-)
-_NUMPY_FILTER_SETTINGS = settings(
-    max_examples=100,
-    suppress_health_check=[HealthCheck.too_slow, HealthCheck.filter_too_much],
-    deadline=None,
-)
 
 
 @st.composite
@@ -312,6 +295,48 @@ def _paired_clouds_nd_composite(draw):
     P = draw(point_clouds_nd(dim=d, n_points=n))
     Q = draw(point_clouds_nd(dim=d, n_points=n))
     return P, Q, d
+
+
+@st.composite
+def _correlated_paired_clouds_nd(draw):
+    """N-D point cloud pair with well-conditioned cross-covariance.
+
+    Q = P + noise ensures H = P_c.T @ Q_c ≈ P_c.T @ P_c, which is
+    well-conditioned whenever P spans all dimensions.  The assume guard
+    rejects the rare case where P itself is degenerate (e.g. all zeros
+    after Hypothesis shrinking); with random [-10,10] points this fires
+    < 1% of the time, well below Hypothesis's filter_too_much threshold.
+    """
+    d = draw(st.integers(2, 6))
+    n = draw(st.integers(d + 2, d * 4 + 4))
+    P = draw(point_clouds_nd(dim=d, n_points=n))
+    noise = draw(
+        arrays(
+            np.float64,
+            (n, d),
+            elements=st.floats(-1, 1, allow_nan=False, allow_infinity=False),
+        )
+    )
+    Q = P + noise
+    # Reject degenerate P (all-zero or collinear after centering)
+    P_c = P - P.mean(0)
+    sv = np.linalg.svd(P_c, compute_uv=False)
+    assume(sv[-1] > 1e-3)
+    return P, Q, d
+
+
+@st.composite
+def _correlated_with_shift(draw):
+    """Correlated N-D point cloud pair plus a drawn translation shift vector."""
+    P, Q, d = draw(_correlated_paired_clouds_nd())
+    v = draw(
+        arrays(
+            np.float64,
+            (d,),
+            elements=st.floats(-10, 10, allow_nan=False, allow_infinity=False),
+        )
+    )
+    return P, Q, d, v
 
 
 @st.composite
@@ -340,7 +365,8 @@ class TestAlignmentInvariants:
         R, t, rmsd = kabsch_np.kabsch(P_np, Q_np)
         residual = np.linalg.norm(P_np @ R.T + t - Q_np) / np.sqrt(n)
 
-        np.testing.assert_allclose(float(rmsd), residual, atol=1e-8)
+        # Float64 RMSD vs residual: paths differ by ~eps * sqrt(N) * scale
+        np.testing.assert_allclose(float(rmsd), residual, atol=1e-12)
 
     @_NUMPY_SETTINGS
     @given(_paired_clouds_nd_composite())
@@ -350,17 +376,18 @@ class TestAlignmentInvariants:
         _, _, rmsd_fwd = kabsch_np.kabsch(P_np, Q_np)
         _, _, rmsd_bwd = kabsch_np.kabsch(Q_np, P_np)
 
-        np.testing.assert_allclose(float(rmsd_fwd), float(rmsd_bwd), atol=1e-8)
+        # Float64 RMSD vs residual: paths differ by ~eps * sqrt(N) * scale
+        np.testing.assert_allclose(float(rmsd_fwd), float(rmsd_bwd), atol=1e-12)
 
-    @_NUMPY_FILTER_SETTINGS
+    @_NUMPY_SETTINGS
     @given(_paired_clouds_nd_composite(), st.integers(0, 2**31 - 1))
     def test_rmsd_invariant_to_rigid_transform(self, PQ: tuple, rng_seed: int) -> None:
         """RMSD is unchanged when both P and Q undergo the same rigid transform."""
         P_np, Q_np, dim = PQ
-        # Require H to be well-conditioned so RMSD is non-trivially non-zero.
-        H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
-        sv_H = np.linalg.svd(H, compute_uv=False)
-        assume(sv_H[-1] > 1e-3)
+        # No conditioning filter: RMSD depends only on the singular values of
+        # H = P_c.T @ Q_c, which are preserved under orthogonal conjugation
+        # (S @ H @ S.T has the same SVs as H).  The invariant holds for all
+        # inputs, including rank-deficient and zero cross-covariance.
         rng = np.random.default_rng(rng_seed)
         A = rng.standard_normal((dim, dim))
         S, _ = np.linalg.qr(A)
@@ -369,31 +396,36 @@ class TestAlignmentInvariants:
         u = rng.standard_normal(dim)
         _, _, rmsd_orig = kabsch_np.kabsch(P_np, Q_np)
         _, _, rmsd_shifted = kabsch_np.kabsch(P_np @ S.T + u, Q_np @ S.T + u)
-        np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-6)
+        # RMSD depends on SVs of H, which are preserved under orthogonal conjugation;
+        # centering after rotation introduces O(eps * ||u|| * sqrt(N*D)) rounding.
+        # Near-degenerate inputs (scale ~ eps) with ||u|| ~ O(1) trigger
+        # catastrophic cancellation in centering, pushing error to ~1e-9.
+        np.testing.assert_allclose(float(rmsd_orig), float(rmsd_shifted), atol=1e-8)
 
-    @_PAIR_SETTINGS
-    @given(_paired_with_shift())
+    @_NUMPY_SETTINGS
+    @given(_correlated_with_shift())
     def test_r_invariant_to_translation(self, PQdv: tuple) -> None:
         """Rotation R is unchanged when both P and Q are shifted by the same vector."""
         P_np, Q_np, _dim, v = PQdv
-        H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
-        sv_H = np.linalg.svd(H, compute_uv=False)
-        assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
+        # Rotation is unique only when H is well-conditioned; correlated
+        # strategy (Q = P + noise) guarantees this by construction.
         R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
         R2, _, _ = kabsch_np.kabsch(P_np + v, Q_np + v)
-        np.testing.assert_allclose(R1, R2, atol=1e-6)
+        # Same centered data -> same H -> same SVD -> same R;
+        # only centering rounding differs
+        np.testing.assert_allclose(R1, R2, atol=1e-10)
 
-    @_PAIR_SETTINGS
-    @given(_paired_clouds_nd_composite(), st.floats(0.1, 10.0))
+    @_NUMPY_SETTINGS
+    @given(_correlated_paired_clouds_nd(), st.floats(0.1, 10.0))
     def test_r_invariant_to_uniform_scale(self, PQ: tuple, c: float) -> None:
         """Rotation R is unchanged when both P and Q are scaled by the same scalar."""
         P_np, Q_np, _ = PQ
-        H = (P_np - P_np.mean(0)).T @ (Q_np - Q_np.mean(0))
-        sv_H = np.linalg.svd(H, compute_uv=False)
-        assume(sv_H[-1] > 0.1)  # rotation is unique only when H is well-conditioned
+        # Rotation is unique only when H is well-conditioned; correlated
+        # strategy (Q = P + noise) guarantees this by construction.
         R1, _, _ = kabsch_np.kabsch(P_np, Q_np)
         R2, _, _ = kabsch_np.kabsch(P_np * c, Q_np * c)
-        np.testing.assert_allclose(R1, R2, atol=1e-6)
+        # Scaling both clouds by c scales H by c^2 but preserves SVD directions
+        np.testing.assert_allclose(R1, R2, atol=1e-10)
 
     @_NUMPY_SETTINGS
     @given(
@@ -407,10 +439,31 @@ class TestAlignmentInvariants:
         assume(sv[-1] > 1e-3)
         Q_np = c_true * (P_np @ R_true.T) + t_true
         _, _, c, rmsd = kabsch_np.kabsch_umeyama(P_np, Q_np)
-        np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
-        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)
+        # Scale = trace(D @ S) / var(P); well-conditioned SVD recovers to ~eps * cond
+        np.testing.assert_allclose(float(c), c_true, rtol=1e-8, atol=1e-8)
+        # RMSD ~ 0 involves cancellation: tol reflects centering + SVD compound error
+        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-6)
 
-    @_NUMPY_FILTER_SETTINGS
+    @_NUMPY_SETTINGS
+    @given(
+        aligned_pair_3d(),
+        st.floats(0.5, 3.0, allow_nan=False, allow_infinity=False),
+    )
+    def test_horn_with_scale_recovers_exact_scale(
+        self, aligned: tuple, c_true: float
+    ) -> None:
+        """horn_with_scale recovers the known scale factor exactly."""
+        P_np, R_true, t_true, _ = aligned
+        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
+        assume(sv[-1] > 1e-3)
+        Q_np = c_true * (P_np @ R_true.T) + t_true
+        _, _, c, rmsd = kabsch_np.horn_with_scale(P_np, Q_np)
+        # Scale = trace(D @ S) / var(P); well-conditioned SVD recovers to ~eps * cond
+        np.testing.assert_allclose(float(c), c_true, rtol=1e-8, atol=1e-8)
+        # RMSD ~ 0 involves cancellation: tol reflects centering + SVD compound error
+        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-6)
+
+    @_NUMPY_SETTINGS
     @given(nearly_collinear_3d())
     def test_rotation_is_not_unique_when_cross_covariance_is_degenerate(
         self, P_np: np.ndarray
@@ -431,7 +484,8 @@ class TestAlignmentInvariants:
         assert np.isfinite(R).all()
         assert np.isfinite(t).all()
         assert np.isfinite(float(rmsd))
-        assert np.linalg.det(R) == pytest.approx(1.0, abs=1e-6)
+        # det(U @ V.T) is ±1 by construction; rounding in 3x3 matmul ~ D * eps
+        assert np.linalg.det(R) == pytest.approx(1.0, abs=1e-12)
 
         # Perturb P along the dominant direction and verify kabsch still succeeds.
         direction = P_np[-1] - P_np[0]
@@ -444,20 +498,3 @@ class TestAlignmentInvariants:
         assert np.isfinite(R2).all()
         assert np.isfinite(t2).all()
         assert np.isfinite(float(rmsd2))
-
-    @_NUMPY_SETTINGS
-    @given(
-        aligned_pair_3d(),
-        st.floats(0.5, 3.0, allow_nan=False, allow_infinity=False),
-    )
-    def test_horn_with_scale_recovers_exact_scale(
-        self, aligned: tuple, c_true: float
-    ) -> None:
-        """horn_with_scale recovers the known scale factor exactly."""
-        P_np, R_true, t_true, _ = aligned
-        sv = np.linalg.svd(P_np - P_np.mean(0), compute_uv=False)
-        assume(sv[-1] > 1e-3)
-        Q_np = c_true * (P_np @ R_true.T) + t_true
-        _, _, c, rmsd = kabsch_np.horn_with_scale(P_np, Q_np)
-        np.testing.assert_allclose(float(c), c_true, rtol=1e-4, atol=1e-4)
-        np.testing.assert_allclose(float(rmsd), 0.0, atol=1e-4)

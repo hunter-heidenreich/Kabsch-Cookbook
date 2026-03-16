@@ -188,6 +188,14 @@ cython_debug/
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
+# Claude Code
+.claude/
+CLAUDE.md
+
+# GitHub Copilot (local-only instructions)
+.github/copilot-instructions.md
+.github/instructions/
+
 # Ruff stuff:
 .ruff_cache/
 

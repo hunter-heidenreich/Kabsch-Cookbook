@@ -1,10 +1,21 @@
 import mlx.core as mx
 
-from ._utils import _DTYPE_EPS, _warn_if_float64
+from ._utils import _DTYPE_EPS, _float64_device_guard, _warn_if_float64
 
 
 @mx.custom_function
 def safe_eigh_fwd(A: mx.array) -> tuple[mx.array, mx.array]:
+    # Force evaluation so we can inspect for NaN; this breaks lazy fusion and
+    # mx.compile compatibility, but is required to prevent mx.linalg.eigh from
+    # fatally aborting the process on NaN inputs.
+    mx.eval(A)
+    if mx.any(mx.isnan(A)).item():
+        # Return NaN-filled tensors matching mx.linalg.eigh shapes:
+        # L: [..., n], V: [..., n, n]
+        n = A.shape[-1]
+        nan_l = mx.full((*A.shape[:-2], n), float("nan"), dtype=A.dtype)
+        nan_v = mx.full(A.shape, float("nan"), dtype=A.dtype)
+        return nan_l, nan_v
     L, V = mx.linalg.eigh(A, stream=mx.cpu)
     return L, V
 
@@ -42,7 +53,9 @@ def safe_eigh_bwd(primals, cotangents, outputs):
     return (dA,)
 
 
-def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
+def horn(
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
+) -> tuple[mx.array, mx.array, mx.array]:
     """
     Computes optimal rotation and translation to align P to Q using Horn's
     quaternion method.
@@ -53,6 +66,8 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
     Args:
         P: Source points as mx.array, shape [..., N, 3].
         Q: Target points as mx.array, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., 3, 3], translation [..., 3], and RMSD [...].
@@ -62,97 +77,139 @@ def horn(P: mx.array, Q: mx.array) -> tuple[mx.array, mx.array, mx.array]:
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        mx.eval(weights)
+        if mx.any(weights < 0).item():
+            raise ValueError("weights must be non-negative")
+        if not mx.all(mx.sum(weights, axis=-1) > 0).item():
+            raise ValueError("weights must sum to a positive value")
+
     _warn_if_float64(P, Q)
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
-    orig_dtype = P.dtype
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        P = P.astype(mx.float32)
-        Q = Q.astype(mx.float32)
 
-    centroid_P = mx.mean(P, axis=-2, keepdims=True)
-    centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+    with _float64_device_guard(P, Q):
+        orig_dtype = P.dtype
+        if P.dtype != Q.dtype:
+            # Mixed dtypes: promote to higher precision
+            target = mx.float64 if mx.float64 in (P.dtype, Q.dtype) else mx.float32
+            P = P.astype(target)
+            Q = Q.astype(target)
+            orig_dtype = target
+        elif orig_dtype in (mx.float16, mx.bfloat16):
+            P = P.astype(mx.float32)
+            Q = Q.astype(mx.float32)
 
-    p = P - centroid_P
-    q = Q - centroid_Q
+        if weights is not None:
+            weights = weights.astype(P.dtype)
 
-    H = mx.matmul(p.swapaxes(-1, -2), q)
+        if weights is not None:
+            w = mx.expand_dims(weights, -1)  # [..., N, 1]
+            w_sum = mx.sum(weights, axis=-1)  # [...]
+            w_sum_exp = mx.expand_dims(mx.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+            centroid_P = mx.sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+            centroid_Q = mx.sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+        else:
+            centroid_P = mx.mean(P, axis=-2, keepdims=True)
+            centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
-    S = H + H.swapaxes(-1, -2)
-    tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
+        p = P - centroid_P
+        q = Q - centroid_Q
 
-    Delta = mx.stack(
-        [
-            H[..., 1, 2] - H[..., 2, 1],
-            H[..., 2, 0] - H[..., 0, 2],
-            H[..., 0, 1] - H[..., 1, 0],
-        ],
-        axis=-1,
-    )
+        if weights is not None:
+            H = mx.matmul((w * p).swapaxes(-1, -2), q)
+        else:
+            H = mx.matmul(p.swapaxes(-1, -2), q)
 
-    D_dim = 3
-    I_shape = (*H.shape[:-2], D_dim, D_dim)
-    I3 = mx.expand_dims(mx.eye(D_dim, dtype=H.dtype), list(range(len(I_shape) - 2)))
-    I3 = mx.broadcast_to(I3, I_shape)
+        S = H + H.swapaxes(-1, -2)
+        tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
 
-    tr_exp = mx.expand_dims(tr, -1)
-    top_row = mx.expand_dims(mx.concatenate([tr_exp, Delta], axis=-1), -2)
+        Delta = mx.stack(
+            [
+                H[..., 1, 2] - H[..., 2, 1],
+                H[..., 2, 0] - H[..., 0, 2],
+                H[..., 0, 1] - H[..., 1, 0],
+            ],
+            axis=-1,
+        )
 
-    bottom_block = mx.concatenate(
-        [mx.expand_dims(Delta, -1), S - mx.expand_dims(tr_exp, -1) * I3], axis=-1
-    )
+        D_dim = 3
+        I_shape = (*H.shape[:-2], D_dim, D_dim)
+        I3 = mx.expand_dims(mx.eye(D_dim, dtype=H.dtype), list(range(len(I_shape) - 2)))
+        I3 = mx.broadcast_to(I3, I_shape)
 
-    N_mat = mx.concatenate([top_row, bottom_block], axis=-2)
+        tr_exp = mx.expand_dims(tr, -1)
+        top_row = mx.expand_dims(mx.concatenate([tr_exp, Delta], axis=-1), -2)
 
-    _L, V = safe_eigh_fwd(N_mat)
-    q_opt = V[..., -1]
+        bottom_block = mx.concatenate(
+            [mx.expand_dims(Delta, -1), S - mx.expand_dims(tr_exp, -1) * I3], axis=-1
+        )
 
-    qw = q_opt[..., 0]
-    qx = q_opt[..., 1]
-    qy = q_opt[..., 2]
-    qz = q_opt[..., 3]
+        N_mat = mx.concatenate([top_row, bottom_block], axis=-2)
 
-    R11 = 1 - 2 * (qy**2 + qz**2)
-    R12 = 2 * (qx * qy - qw * qz)
-    R13 = 2 * (qx * qz + qw * qy)
-    R21 = 2 * (qx * qy + qw * qz)
-    R22 = 1 - 2 * (qx**2 + qz**2)
-    R23 = 2 * (qy * qz - qw * qx)
-    R31 = 2 * (qx * qz - qw * qy)
-    R32 = 2 * (qy * qz + qw * qx)
-    R33 = 1 - 2 * (qx**2 + qy**2)
+        _L, V = safe_eigh_fwd(N_mat)
+        q_opt = V[..., -1]
 
-    R = mx.stack(
-        [
-            mx.stack([R11, R12, R13], axis=-1),
-            mx.stack([R21, R22, R23], axis=-1),
-            mx.stack([R31, R32, R33], axis=-1),
-        ],
-        axis=-2,
-    )
+        qw = q_opt[..., 0]
+        qx = q_opt[..., 1]
+        qy = q_opt[..., 2]
+        qz = q_opt[..., 3]
 
-    t = mx.squeeze(centroid_Q, -2) - mx.squeeze(
-        mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
-    )
+        R11 = 1 - 2 * (qy**2 + qz**2)
+        R12 = 2 * (qx * qy - qw * qz)
+        R13 = 2 * (qx * qz + qw * qy)
+        R21 = 2 * (qx * qy + qw * qz)
+        R22 = 1 - 2 * (qx**2 + qz**2)
+        R23 = 2 * (qy * qz - qw * qx)
+        R31 = 2 * (qx * qz - qw * qy)
+        R32 = 2 * (qy * qz + qw * qx)
+        R33 = 1 - 2 * (qx**2 + qy**2)
 
-    aligned = mx.matmul(p, R.swapaxes(-1, -2))
+        R = mx.stack(
+            [
+                mx.stack([R11, R12, R13], axis=-1),
+                mx.stack([R21, R22, R23], axis=-1),
+                mx.stack([R31, R32, R33], axis=-1),
+            ],
+            axis=-2,
+        )
 
-    diff = aligned - q
-    mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
-    rmsd = mx.sqrt(mse + _eps)
+        t = mx.squeeze(centroid_Q, -2) - mx.squeeze(
+            mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
+        )
 
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        R = R.astype(orig_dtype)
-        t = t.astype(orig_dtype)
-        rmsd = rmsd.astype(orig_dtype)
-    return R, t, rmsd
+        aligned = mx.matmul(p, R.swapaxes(-1, -2))
+
+        diff = aligned - q
+        if weights is not None:
+            residual_sq = mx.sum(mx.square(diff), axis=-1)
+            mse = mx.sum(weights * residual_sq, axis=-1) / w_sum
+        else:
+            mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+        rmsd = mx.sqrt(mse + _eps)
+
+        if orig_dtype in (mx.float16, mx.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+        return R, t, rmsd
 
 
 def horn_with_scale(
-    P: mx.array, Q: mx.array
+    P: mx.array, Q: mx.array, weights: mx.array | None = None
 ) -> tuple[mx.array, mx.array, mx.array, mx.array]:
     """
     Computes optimal rotation, translation, and scale to align P to Q
@@ -163,6 +220,8 @@ def horn_with_scale(
     Args:
         P: Source points as mx.array, shape [..., N, 3].
         Q: Target points as mx.array, shape [..., N, 3].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., 3, 3], translation [..., 3],
@@ -173,97 +232,140 @@ def horn_with_scale(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
+
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        mx.eval(weights)
+        if mx.any(weights < 0).item():
+            raise ValueError("weights must be non-negative")
+        if not mx.all(mx.sum(weights, axis=-1) > 0).item():
+            raise ValueError("weights must sum to a positive value")
+
     _warn_if_float64(P, Q)
     if P.shape[-1] != 3:
         raise ValueError("Horn's method is strictly for 3D point clouds")
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
-    orig_dtype = P.dtype
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        P = P.astype(mx.float32)
-        Q = Q.astype(mx.float32)
 
-    centroid_P = mx.mean(P, axis=-2, keepdims=True)
-    centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
+    with _float64_device_guard(P, Q):
+        orig_dtype = P.dtype
+        if P.dtype != Q.dtype:
+            # Mixed dtypes: promote to higher precision
+            target = mx.float64 if mx.float64 in (P.dtype, Q.dtype) else mx.float32
+            P = P.astype(target)
+            Q = Q.astype(target)
+            orig_dtype = target
+        elif orig_dtype in (mx.float16, mx.bfloat16):
+            P = P.astype(mx.float32)
+            Q = Q.astype(mx.float32)
 
-    p = P - centroid_P
-    q = Q - centroid_Q
+        if weights is not None:
+            weights = weights.astype(P.dtype)
 
-    var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+        if weights is not None:
+            w = mx.expand_dims(weights, -1)  # [..., N, 1]
+            w_sum = mx.sum(weights, axis=-1)  # [...]
+            w_sum_exp = mx.expand_dims(mx.expand_dims(w_sum, -1), -1)  # [..., 1, 1]
+            centroid_P = mx.sum(w * P, axis=-2, keepdims=True) / w_sum_exp
+            centroid_Q = mx.sum(w * Q, axis=-2, keepdims=True) / w_sum_exp
+        else:
+            centroid_P = mx.mean(P, axis=-2, keepdims=True)
+            centroid_Q = mx.mean(Q, axis=-2, keepdims=True)
 
-    H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
+        p = P - centroid_P
+        q = Q - centroid_Q
 
-    S = H + H.swapaxes(-1, -2)
-    tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
+        if weights is not None:
+            var_P = mx.sum(weights * mx.sum(mx.square(p), axis=-1), axis=-1) / w_sum
+            H = mx.matmul((w * p).swapaxes(-1, -2), q) / w_sum_exp
+        else:
+            var_P = mx.sum(mx.square(p), axis=(-2, -1)) / P.shape[-2]
+            H = mx.matmul(p.swapaxes(-1, -2), q) / P.shape[-2]
 
-    Delta = mx.stack(
-        [
-            H[..., 1, 2] - H[..., 2, 1],
-            H[..., 2, 0] - H[..., 0, 2],
-            H[..., 0, 1] - H[..., 1, 0],
-        ],
-        axis=-1,
-    )
+        S = H + H.swapaxes(-1, -2)
+        tr = H[..., 0, 0] + H[..., 1, 1] + H[..., 2, 2]
 
-    D_dim = 3
-    I_shape = (*H.shape[:-2], D_dim, D_dim)
-    I3 = mx.expand_dims(mx.eye(D_dim, dtype=H.dtype), list(range(len(I_shape) - 2)))
-    I3 = mx.broadcast_to(I3, I_shape)
+        Delta = mx.stack(
+            [
+                H[..., 1, 2] - H[..., 2, 1],
+                H[..., 2, 0] - H[..., 0, 2],
+                H[..., 0, 1] - H[..., 1, 0],
+            ],
+            axis=-1,
+        )
 
-    tr_exp = mx.expand_dims(tr, -1)
-    top_row = mx.expand_dims(mx.concatenate([tr_exp, Delta], axis=-1), -2)
+        D_dim = 3
+        I_shape = (*H.shape[:-2], D_dim, D_dim)
+        I3 = mx.expand_dims(mx.eye(D_dim, dtype=H.dtype), list(range(len(I_shape) - 2)))
+        I3 = mx.broadcast_to(I3, I_shape)
 
-    bottom_block = mx.concatenate(
-        [mx.expand_dims(Delta, -1), S - mx.expand_dims(tr_exp, -1) * I3], axis=-1
-    )
+        tr_exp = mx.expand_dims(tr, -1)
+        top_row = mx.expand_dims(mx.concatenate([tr_exp, Delta], axis=-1), -2)
 
-    N_mat = mx.concatenate([top_row, bottom_block], axis=-2)
+        bottom_block = mx.concatenate(
+            [mx.expand_dims(Delta, -1), S - mx.expand_dims(tr_exp, -1) * I3], axis=-1
+        )
 
-    _L, V = safe_eigh_fwd(N_mat)
-    q_opt = V[..., -1]
+        N_mat = mx.concatenate([top_row, bottom_block], axis=-2)
 
-    qw = q_opt[..., 0]
-    qx = q_opt[..., 1]
-    qy = q_opt[..., 2]
-    qz = q_opt[..., 3]
+        _L, V = safe_eigh_fwd(N_mat)
+        q_opt = V[..., -1]
 
-    R11 = 1 - 2 * (qy**2 + qz**2)
-    R12 = 2 * (qx * qy - qw * qz)
-    R13 = 2 * (qx * qz + qw * qy)
-    R21 = 2 * (qx * qy + qw * qz)
-    R22 = 1 - 2 * (qx**2 + qz**2)
-    R23 = 2 * (qy * qz - qw * qx)
-    R31 = 2 * (qx * qz - qw * qy)
-    R32 = 2 * (qy * qz + qw * qx)
-    R33 = 1 - 2 * (qx**2 + qy**2)
+        qw = q_opt[..., 0]
+        qx = q_opt[..., 1]
+        qy = q_opt[..., 2]
+        qz = q_opt[..., 3]
 
-    R = mx.stack(
-        [
-            mx.stack([R11, R12, R13], axis=-1),
-            mx.stack([R21, R22, R23], axis=-1),
-            mx.stack([R31, R32, R33], axis=-1),
-        ],
-        axis=-2,
-    )
+        R11 = 1 - 2 * (qy**2 + qz**2)
+        R12 = 2 * (qx * qy - qw * qz)
+        R13 = 2 * (qx * qz + qw * qy)
+        R21 = 2 * (qx * qy + qw * qz)
+        R22 = 1 - 2 * (qx**2 + qz**2)
+        R23 = 2 * (qy * qz - qw * qx)
+        R31 = 2 * (qx * qz - qw * qy)
+        R32 = 2 * (qy * qz + qw * qx)
+        R33 = 1 - 2 * (qx**2 + qy**2)
 
-    RH = mx.sum(R * H.swapaxes(-1, -2), axis=(-1, -2))
-    _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
-    c = RH / mx.maximum(var_P, _eps)
+        R = mx.stack(
+            [
+                mx.stack([R11, R12, R13], axis=-1),
+                mx.stack([R21, R22, R23], axis=-1),
+                mx.stack([R31, R32, R33], axis=-1),
+            ],
+            axis=-2,
+        )
 
-    t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
-        mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
-    )
+        RH = mx.sum(R * H.swapaxes(-1, -2), axis=(-1, -2))
+        _eps = _DTYPE_EPS.get(P.dtype, 1.1920929e-7)
+        c = RH / mx.maximum(var_P, _eps)
 
-    aligned_P = mx.expand_dims(mx.expand_dims(c, -1), -1) * mx.matmul(
-        P, R.swapaxes(-1, -2)
-    ) + mx.expand_dims(t, -2)
-    diff = aligned_P - Q
-    mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
-    rmsd = mx.sqrt(mse + _eps)
+        t = mx.squeeze(centroid_Q, -2) - mx.expand_dims(c, -1) * mx.squeeze(
+            mx.matmul(centroid_P, R.swapaxes(-1, -2)), -2
+        )
 
-    if orig_dtype in (mx.float16, mx.bfloat16):
-        R = R.astype(orig_dtype)
-        t = t.astype(orig_dtype)
-        c = c.astype(orig_dtype)
-        rmsd = rmsd.astype(orig_dtype)
-    return R, t, c, rmsd
+        aligned_P = mx.expand_dims(mx.expand_dims(c, -1), -1) * mx.matmul(
+            P, R.swapaxes(-1, -2)
+        ) + mx.expand_dims(t, -2)
+        diff = aligned_P - Q
+        if weights is not None:
+            residual_sq = mx.sum(mx.square(diff), axis=-1)
+            mse = mx.sum(weights * residual_sq, axis=-1) / w_sum
+        else:
+            mse = mx.mean(mx.sum(mx.square(diff), axis=-1), axis=-1)
+        rmsd = mx.sqrt(mse + _eps)
+
+        if orig_dtype in (mx.float16, mx.bfloat16):
+            R = R.astype(orig_dtype)
+            t = t.astype(orig_dtype)
+            c = mx.minimum(c, mx.array(mx.finfo(orig_dtype).max, dtype=c.dtype))
+            c = c.astype(orig_dtype)
+            rmsd = rmsd.astype(orig_dtype)
+        return R, t, c, rmsd

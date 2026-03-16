@@ -1,13 +1,17 @@
 import numpy as np
 
 
-def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def kabsch(
+    P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes the optimal rotation and translation to align P to Q.
 
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
@@ -23,19 +27,46 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        weights = np.asarray(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if np.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not np.all(np.sum(weights, axis=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
-    if orig_dtype in (np.float16,):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = np.float64 if np.float64 in (P.dtype, Q.dtype) else np.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (np.float16,):
         P = P.astype(np.float32)
         Q = Q.astype(np.float32)
+
+    if weights is not None:
+        weights = weights.astype(P.dtype)
 
     # Auto-batch single elements
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
+        if weights is not None:
+            weights = weights[np.newaxis, :]
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -43,17 +74,32 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
+    if weights is not None:
+        weights = np.reshape(weights, (-1, N))
 
     # Compute centroids
-    centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
-    centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1xD
+    if weights is not None:
+        w = weights[:, :, np.newaxis]  # BxNx1
+        w_sum = np.sum(weights, axis=-1)  # B
+        centroid_P = (
+            np.sum(w * P, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+        centroid_Q = (
+            np.sum(w * Q, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+    else:
+        centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
+        centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1xD
 
     # Center the points
     p = P - centroid_P  # BxNxD
     q = Q - centroid_Q  # BxNxD
 
     # Compute the covariance matrix
-    H = np.matmul(p.transpose(0, 2, 1), q)  # BxDxD
+    if weights is not None:
+        H = np.matmul((w * p).transpose(0, 2, 1), q)  # BxDxD
+    else:
+        H = np.matmul(p.transpose(0, 2, 1), q)  # BxDxD
 
     # SVD
     U, _, Vt = np.linalg.svd(H)  # BxDxD
@@ -79,13 +125,12 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
     # RMSD
     aligned_P = np.matmul(P, R.transpose(0, 2, 1)) + t[:, np.newaxis, :]
-    rmsd = np.sqrt(
-        np.clip(
-            np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N,
-            a_min=0.0,
-            a_max=None,
-        )
-    )
+    if weights is not None:
+        residual_sq = np.sum(np.square(aligned_P - Q), axis=-1)  # BxN
+        mse = np.sum(weights * residual_sq, axis=-1) / w_sum  # B
+    else:
+        mse = np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N
+    rmsd = np.sqrt(np.clip(mse, a_min=0.0, a_max=None))
 
     if is_single:
         R, t, rmsd = R[0], t[0], rmsd[0]
@@ -101,7 +146,7 @@ def kabsch(P: np.ndarray, Q: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.nda
 
 
 def kabsch_umeyama(
-    P: np.ndarray, Q: np.ndarray
+    P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Computes the optimal rotation, translation, and scale to align P to Q
@@ -110,6 +155,8 @@ def kabsch_umeyama(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
@@ -130,18 +177,45 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        weights = np.asarray(weights)
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if np.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not np.all(np.sum(weights, axis=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
-    if orig_dtype in (np.float16,):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = np.float64 if np.float64 in (P.dtype, Q.dtype) else np.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (np.float16,):
         P = P.astype(np.float32)
         Q = Q.astype(np.float32)
+
+    if weights is not None:
+        weights = weights.astype(P.dtype)
 
     is_single = P.ndim == 2
     if is_single:
         P = P[np.newaxis, ...]
         Q = Q[np.newaxis, ...]
+        if weights is not None:
+            weights = weights[np.newaxis, :]
 
     orig_shape = P.shape
     batch_dims = orig_shape[:-2]
@@ -149,20 +223,34 @@ def kabsch_umeyama(
 
     P = np.reshape(P, (-1, N, D))
     Q = np.reshape(Q, (-1, N, D))
+    if weights is not None:
+        weights = np.reshape(weights, (-1, N))
 
     # Compute centroids
-    centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
-    centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1xD
+    if weights is not None:
+        w = weights[:, :, np.newaxis]  # BxNx1
+        w_sum = np.sum(weights, axis=-1)  # B
+        centroid_P = (
+            np.sum(w * P, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+        centroid_Q = (
+            np.sum(w * Q, axis=1, keepdims=True) / w_sum[:, np.newaxis, np.newaxis]
+        )
+    else:
+        centroid_P = np.mean(P, axis=1, keepdims=True)  # Bx1xD
+        centroid_Q = np.mean(Q, axis=1, keepdims=True)  # Bx1xD
 
     # Center the points
     p = P - centroid_P  # BxNxD
     q = Q - centroid_Q  # BxNxD
 
-    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
-    H = np.matmul(p.transpose(0, 2, 1), q) / N  # BxDxD
-
-    # Variances
-    var_P = np.sum(np.square(p), axis=(1, 2)) / N  # B
+    # Cross-covariance matrix (divided by N or w_sum for Umeyama scale estimation)
+    if weights is not None:
+        H = np.matmul((w * p).transpose(0, 2, 1), q) / w_sum[:, np.newaxis, np.newaxis]
+        var_P = np.sum(weights * np.sum(np.square(p), axis=-1), axis=-1) / w_sum  # B
+    else:
+        H = np.matmul(p.transpose(0, 2, 1), q) / N  # BxDxD
+        var_P = np.sum(np.square(p), axis=(1, 2)) / N  # B
 
     # SVD
     U, S, Vt = np.linalg.svd(H)  # BxDxD, BxD, BxDxD
@@ -195,13 +283,12 @@ def kabsch_umeyama(
         c[:, np.newaxis, np.newaxis] * np.matmul(P, R.transpose(0, 2, 1))
         + t[:, np.newaxis, :]
     )
-    rmsd = np.sqrt(
-        np.clip(
-            np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N,
-            a_min=0.0,
-            a_max=None,
-        )
-    )
+    if weights is not None:
+        residual_sq = np.sum(np.square(aligned_P - Q), axis=-1)  # BxN
+        mse = np.sum(weights * residual_sq, axis=-1) / w_sum  # B
+    else:
+        mse = np.sum(np.square(aligned_P - Q), axis=(1, 2)) / N
+    rmsd = np.sqrt(np.clip(mse, a_min=0.0, a_max=None))
 
     if is_single:
         R, t, c, rmsd = R[0], t[0], c[0], rmsd[0]
@@ -213,6 +300,7 @@ def kabsch_umeyama(
     if orig_dtype in (np.float16,):
         R = R.astype(orig_dtype)
         t = t.astype(orig_dtype)
+        c = np.clip(c, a_min=None, a_max=np.finfo(orig_dtype).max)
         c = c.astype(orig_dtype)
         rmsd = rmsd.astype(orig_dtype)
     return R, t, c, rmsd

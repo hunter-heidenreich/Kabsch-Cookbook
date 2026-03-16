@@ -54,10 +54,25 @@ def _bwd(res, g):
 
     grad_Vh = mH(grad_V)
 
+    # SVD backward-pass sign convention (JAX)
+    # ------------------------------------
+    # jnp.linalg.svd returns (U, S, Vh) with A = U @ diag(S) @ Vh.
+    #
+    # The F matrix is F_ij = 1 / (S_i^2 - S_j^2), computed as:
+    #   D = S_sq[..., newaxis] - S_sq[..., newaxis, :]   (row - col)
+    #
+    # With this ordering, the gradient formula is:
+    #   dA = U @ (diag(dS) - J @ S - S @ K) @ Vh
+    #
+    # TensorFlow and MLX use the transposed axis ordering for D
+    # (col - row), which negates F and flips the formula to +J, +K.
+    # Both forms are equivalent -- see Townsend (2016),
+    # "Differentiating the Singular Value Decomposition".
+
     # 1. Square of S
     S_sq = jnp.square(S)  # BxD
 
-    # 2. D = S_sq - S_sq^T
+    # 2. D = S_i^2 - S_j^2 (row - col)
     D = S_sq[..., jnp.newaxis] - S_sq[..., jnp.newaxis, :]  # BxDxD
 
     # 3. Safe F
@@ -90,7 +105,7 @@ safe_svd.defvjp(_fwd, _bwd)
 
 
 def kabsch(
-    P: jnp.ndarray, Q: jnp.ndarray
+    P: jnp.ndarray, Q: jnp.ndarray, weights: jnp.ndarray | None = None
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Computes the optimal rotation and translation to align P to Q using
@@ -99,6 +114,8 @@ def kabsch(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], and RMSD [...].
@@ -115,18 +132,44 @@ def kabsch(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if jnp.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not jnp.all(jnp.sum(weights, axis=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
-    if orig_dtype in (jnp.float16, jnp.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = jnp.float64 if jnp.float64 in (P.dtype, Q.dtype) else jnp.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
         Q = Q.astype(jnp.float32)
+
+    if weights is not None:
+        weights = weights.astype(P.dtype)
 
     is_single = P.ndim == 2
     if is_single:
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
+        if weights is not None:
+            weights = weights[jnp.newaxis, :]
 
     orig_shape = P.shape
     D = orig_shape[-1]
@@ -135,14 +178,29 @@ def kabsch(
 
     P = P.reshape(-1, N, D)
     Q = Q.reshape(-1, N, D)
+    if weights is not None:
+        weights = weights.reshape(-1, N)
 
-    centroid_P = jnp.mean(P, axis=1, keepdims=True)
-    centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
+    if weights is not None:
+        w = weights[:, :, jnp.newaxis]  # BxNx1
+        w_sum = jnp.sum(weights, axis=-1)  # B
+        centroid_P = (
+            jnp.sum(w * P, axis=1, keepdims=True) / w_sum[:, jnp.newaxis, jnp.newaxis]
+        )
+        centroid_Q = (
+            jnp.sum(w * Q, axis=1, keepdims=True) / w_sum[:, jnp.newaxis, jnp.newaxis]
+        )
+    else:
+        centroid_P = jnp.mean(P, axis=1, keepdims=True)
+        centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    H = jnp.matmul(jnp.swapaxes(p, 1, 2), q)
+    if weights is not None:
+        H = jnp.matmul(jnp.swapaxes(w * p, 1, 2), q)
+    else:
+        H = jnp.matmul(jnp.swapaxes(p, 1, 2), q)
 
     U, _S, V = safe_svd(H)
 
@@ -161,7 +219,11 @@ def kabsch(
     )
 
     aligned = jnp.matmul(P, jnp.swapaxes(R, 1, 2)) + t[:, jnp.newaxis, :]
-    mse = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
+    if weights is not None:
+        residual_sq = jnp.sum(jnp.square(aligned - Q), axis=-1)  # BxN
+        mse = jnp.sum(weights * residual_sq, axis=-1) / w_sum  # B
+    else:
+        mse = jnp.sum(jnp.square(aligned - Q), axis=(1, 2)) / N
     rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
@@ -185,7 +247,7 @@ def kabsch(
 
 
 def kabsch_umeyama(
-    P: jnp.ndarray, Q: jnp.ndarray
+    P: jnp.ndarray, Q: jnp.ndarray, weights: jnp.ndarray | None = None
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Computes the optimal rotation, translation, and scale to align P to Q
@@ -194,6 +256,8 @@ def kabsch_umeyama(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D],
@@ -215,18 +279,44 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if jnp.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not jnp.all(jnp.sum(weights, axis=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
-    if orig_dtype in (jnp.float16, jnp.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = jnp.float64 if jnp.float64 in (P.dtype, Q.dtype) else jnp.float32
+        P = P.astype(target)
+        Q = Q.astype(target)
+        orig_dtype = target
+    elif orig_dtype in (jnp.float16, jnp.bfloat16):
         P = P.astype(jnp.float32)
         Q = Q.astype(jnp.float32)
+
+    if weights is not None:
+        weights = weights.astype(P.dtype)
 
     is_single = P.ndim == 2
     if is_single:
         P = P[jnp.newaxis, ...]
         Q = Q[jnp.newaxis, ...]
+        if weights is not None:
+            weights = weights[jnp.newaxis, :]
 
     orig_shape = P.shape
     D = orig_shape[-1]
@@ -235,17 +325,35 @@ def kabsch_umeyama(
 
     P = P.reshape(-1, N, D)
     Q = Q.reshape(-1, N, D)
+    if weights is not None:
+        weights = weights.reshape(-1, N)
 
-    centroid_P = jnp.mean(P, axis=1, keepdims=True)
-    centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
+    if weights is not None:
+        w = weights[:, :, jnp.newaxis]  # BxNx1
+        w_sum = jnp.sum(weights, axis=-1)  # B
+        centroid_P = (
+            jnp.sum(w * P, axis=1, keepdims=True) / w_sum[:, jnp.newaxis, jnp.newaxis]
+        )
+        centroid_Q = (
+            jnp.sum(w * Q, axis=1, keepdims=True) / w_sum[:, jnp.newaxis, jnp.newaxis]
+        )
+    else:
+        centroid_P = jnp.mean(P, axis=1, keepdims=True)
+        centroid_Q = jnp.mean(Q, axis=1, keepdims=True)
 
     p = P - centroid_P
     q = Q - centroid_Q
 
-    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
-    H = jnp.matmul(jnp.swapaxes(p, 1, 2), q) / N
-
-    var_P = jnp.sum(jnp.square(p), axis=(1, 2)) / N
+    # Cross-covariance matrix (divided by N or w_sum for Umeyama scale estimation)
+    if weights is not None:
+        H = (
+            jnp.matmul(jnp.swapaxes(w * p, 1, 2), q)
+            / w_sum[:, jnp.newaxis, jnp.newaxis]
+        )
+        var_P = jnp.sum(weights * jnp.sum(jnp.square(p), axis=-1), axis=-1) / w_sum
+    else:
+        H = jnp.matmul(jnp.swapaxes(p, 1, 2), q) / N
+        var_P = jnp.sum(jnp.square(p), axis=(1, 2)) / N
 
     U, S, V = safe_svd(H)
 
@@ -269,7 +377,11 @@ def kabsch_umeyama(
         c[:, jnp.newaxis, jnp.newaxis] * jnp.matmul(P, jnp.swapaxes(R, 1, 2))
         + t[:, jnp.newaxis, :]
     )
-    mse = jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N
+    if weights is not None:
+        residual_sq = jnp.sum(jnp.square(aligned_P - Q), axis=-1)  # BxN
+        mse = jnp.sum(weights * residual_sq, axis=-1) / w_sum  # B
+    else:
+        mse = jnp.sum(jnp.square(aligned_P - Q), axis=(1, 2)) / N
     rmsd = jnp.sqrt(mse + _eps)
 
     if is_single:
@@ -277,6 +389,7 @@ def kabsch_umeyama(
         if orig_dtype in (jnp.float16, jnp.bfloat16):
             R = R.astype(orig_dtype)
             t = t.astype(orig_dtype)
+            c = jnp.clip(c, max=jnp.finfo(orig_dtype).max)
             c = c.astype(orig_dtype)
             rmsd = rmsd.astype(orig_dtype)
 
@@ -290,19 +403,24 @@ def kabsch_umeyama(
     if orig_dtype in (jnp.float16, jnp.bfloat16):
         R = R.astype(orig_dtype)
         t = t.astype(orig_dtype)
+        c = jnp.clip(c, max=jnp.finfo(orig_dtype).max)
         c = c.astype(orig_dtype)
         rmsd = rmsd.astype(orig_dtype)
 
     return R, t, c, rmsd
 
 
-def kabsch_rmsd(P: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
+def kabsch_rmsd(
+    P: jnp.ndarray, Q: jnp.ndarray, weights: jnp.ndarray | None = None
+) -> jnp.ndarray:
     """Computes RMSD after Kabsch alignment. Gradient-safe training loss."""
-    _R, _t, rmsd = kabsch(P, Q)
+    _R, _t, rmsd = kabsch(P, Q, weights=weights)
     return rmsd
 
 
-def kabsch_umeyama_rmsd(P: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
+def kabsch_umeyama_rmsd(
+    P: jnp.ndarray, Q: jnp.ndarray, weights: jnp.ndarray | None = None
+) -> jnp.ndarray:
     """Computes RMSD after Kabsch-Umeyama alignment. Gradient-safe training loss."""
-    _R, _t, _c, rmsd = kabsch_umeyama(P, Q)
+    _R, _t, _c, rmsd = kabsch_umeyama(P, Q, weights=weights)
     return rmsd

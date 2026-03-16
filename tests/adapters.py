@@ -4,15 +4,24 @@ from typing import ClassVar, Generic, TypeVar
 import numpy as np
 import pytest
 
+from kabsch_horn import numpy as kabsch_np
+
 T = TypeVar("T")
 
 
 class FrameworkAdapter(Generic[T]):
+    # Base tolerances per precision tier, derived from sqrt(machine_eps)
+    # with a ~3x safety multiplier for SVD/eigh pipeline accumulation:
+    #   float16  sqrt(9.8e-4)=3.1e-2  * 3 ≈ 1e-1
+    #   bfloat16 sqrt(7.8e-3)=8.8e-2  * 1 ≈ 1e-1
+    #   float32  sqrt(1.2e-7)=3.5e-4  * 3 ≈ 1e-3
+    #   float64  sqrt(2.2e-16)=1.5e-8 * 7 ≈ 1e-7
+    # eps: near-zero guard for descent checks (also usable as FD step)
     _TOLERANCES: ClassVar[dict[str, dict[str, float]]] = {
         "float16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
         "bfloat16": {"eps": 1e-2, "atol": 1e-1, "rtol": 1e-1},
-        "float32": {"eps": 1e-3, "atol": 5e-2, "rtol": 5e-2},
-        "float64": {"eps": 1e-5, "atol": 1e-5, "rtol": 1e-5},
+        "float32": {"eps": 1e-3, "atol": 1e-3, "rtol": 1e-3},
+        "float64": {"eps": 1e-5, "atol": 1e-7, "rtol": 1e-7},
     }
 
     def __init__(self, precision: str = "float64"):
@@ -32,40 +41,58 @@ class FrameworkAdapter(Generic[T]):
     def rtol(self) -> float:
         return self._TOLERANCES[self.precision]["rtol"]
 
+    @property
+    def name(self) -> str:
+        """Human-readable adapter name (class name)."""
+        return type(self).__name__
+
     def supports_dim(self, dim: int) -> bool:
         """Indicates whether this adapter supports N-D inputs."""
         return True
+
+    def supported_dims(self) -> list[int]:
+        """Dims this adapter supports, for use in Hypothesis strategy construction."""
+        return list(range(2, 7))
 
     @property
     def supports_nan_input(self) -> bool:
         """Returns True if the framework propagates NaN through SVD without crashing."""
         return True
 
+    @property
+    def supports_grad(self) -> bool:
+        """Returns True if the framework supports automatic differentiation."""
+        return True
+
     def convert_in(self, arr: np.ndarray) -> T:
+        raise NotImplementedError
+
+    def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> T:
+        """Convert array to framework tensor with an explicit precision override."""
         raise NotImplementedError
 
     def convert_out(self, obj: T) -> np.ndarray:
         raise NotImplementedError
 
-    def kabsch(self, P: T, Q: T) -> tuple[T, ...]:
+    def kabsch(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def kabsch_umeyama(self, P: T, Q: T) -> tuple[T, ...]:
+    def kabsch_umeyama(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def horn(self, P: T, Q: T) -> tuple[T, ...]:
+    def horn(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def horn_with_scale(self, P: T, Q: T) -> tuple[T, ...]:
+    def horn_with_scale(self, P: T, Q: T, weights: T | None = None) -> tuple[T, ...]:
         raise NotImplementedError
 
-    def kabsch_rmsd(self, P: T, Q: T) -> T:
+    def kabsch_rmsd(self, P: T, Q: T, weights: T | None = None) -> T:
         raise NotImplementedError
 
-    def kabsch_umeyama_rmsd(self, P: T, Q: T) -> T:
+    def kabsch_umeyama_rmsd(self, P: T, Q: T, weights: T | None = None) -> T:
         raise NotImplementedError
 
-    def get_transform_func(self, algo: str) -> Callable[[T, T], tuple[T, ...]]:
+    def get_transform_func(self, algo: str) -> Callable:
         """Returns the corresponding transformation function for the given algorithm."""
         if algo == "kabsch":
             return self.kabsch
@@ -84,7 +111,7 @@ class FrameworkAdapter(Generic[T]):
         self,
         P: T,
         Q: T,
-        func: Callable[[T, T], tuple[T, ...]],
+        func: Callable,
         seed: int | None = 42,
         wrt: str = "P",
     ) -> np.ndarray:
@@ -115,6 +142,12 @@ try:
             dtype = self._DTYPE_MAP[self.precision]
             return torch.tensor(arr, dtype=dtype, requires_grad=True)
 
+        def convert_in_with_dtype(
+            self, arr: np.ndarray, precision: str
+        ) -> torch.Tensor:
+            dtype = self._DTYPE_MAP[precision]
+            return torch.tensor(arr, dtype=dtype, requires_grad=False)
+
         def convert_out(self, obj: torch.Tensor) -> np.ndarray:
             if isinstance(obj, torch.Tensor):
                 if obj.dtype in (torch.bfloat16, torch.float16):
@@ -122,27 +155,53 @@ try:
                 return obj.detach().numpy()
             return obj
 
-        def kabsch(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.kabsch(P, Q)
+        def kabsch(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.kabsch(P, Q, weights=weights)
 
         def kabsch_umeyama(
-            self, P: torch.Tensor, Q: torch.Tensor
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
         ) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.kabsch_umeyama(P, Q)
+            return kabsch_torch.kabsch_umeyama(P, Q, weights=weights)
 
-        def horn(self, P: torch.Tensor, Q: torch.Tensor) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.horn(P, Q)
+        def horn(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> tuple[torch.Tensor, ...]:
+            return kabsch_torch.horn(P, Q, weights=weights)
 
         def horn_with_scale(
-            self, P: torch.Tensor, Q: torch.Tensor
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
         ) -> tuple[torch.Tensor, ...]:
-            return kabsch_torch.horn_with_scale(P, Q)
+            return kabsch_torch.horn_with_scale(P, Q, weights=weights)
 
-        def kabsch_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-            return kabsch_torch.kabsch_rmsd(P, Q)
+        def kabsch_rmsd(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> torch.Tensor:
+            return kabsch_torch.kabsch_rmsd(P, Q, weights=weights)
 
-        def kabsch_umeyama_rmsd(self, P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
-            return kabsch_torch.kabsch_umeyama_rmsd(P, Q)
+        def kabsch_umeyama_rmsd(
+            self,
+            P: torch.Tensor,
+            Q: torch.Tensor,
+            weights: torch.Tensor | None = None,
+        ) -> torch.Tensor:
+            return kabsch_torch.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: torch.Tensor) -> bool:
             return torch.isnan(tensor).any().item()
@@ -151,7 +210,7 @@ try:
             self,
             P: torch.Tensor,
             Q: torch.Tensor,
-            func: Callable[[torch.Tensor, torch.Tensor], tuple[torch.Tensor, ...]],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -207,28 +266,44 @@ try:
             dtype = self._DTYPE_MAP[self.precision]
             return jnp.array(arr, dtype=dtype)
 
+        def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> jax.Array:
+            dtype = self._DTYPE_MAP[precision]
+            return jnp.array(arr, dtype=dtype)
+
         def convert_out(self, obj: jax.Array) -> np.ndarray:
             if obj.dtype in (jnp.bfloat16, jnp.float16):
                 obj = obj.astype(jnp.float32)
             return np.array(obj)
 
-        def kabsch(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.kabsch(P, Q)
+        def kabsch(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.kabsch(P, Q, weights=weights)
 
-        def kabsch_umeyama(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.kabsch_umeyama(P, Q)
+        def kabsch_umeyama(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.kabsch_umeyama(P, Q, weights=weights)
 
-        def horn(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.horn(P, Q)
+        def horn(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.horn(P, Q, weights=weights)
 
-        def horn_with_scale(self, P: jax.Array, Q: jax.Array) -> tuple[jax.Array, ...]:
-            return kabsch_jax.horn_with_scale(P, Q)
+        def horn_with_scale(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> tuple[jax.Array, ...]:
+            return kabsch_jax.horn_with_scale(P, Q, weights=weights)
 
-        def kabsch_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
-            return kabsch_jax.kabsch_rmsd(P, Q)
+        def kabsch_rmsd(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> jax.Array:
+            return kabsch_jax.kabsch_rmsd(P, Q, weights=weights)
 
-        def kabsch_umeyama_rmsd(self, P: jax.Array, Q: jax.Array) -> jax.Array:
-            return kabsch_jax.kabsch_umeyama_rmsd(P, Q)
+        def kabsch_umeyama_rmsd(
+            self, P: jax.Array, Q: jax.Array, weights: jax.Array | None = None
+        ) -> jax.Array:
+            return kabsch_jax.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: jax.Array) -> bool:
             return jnp.isnan(tensor).any()
@@ -237,7 +312,7 @@ try:
             self,
             P: jax.Array,
             Q: jax.Array,
-            func: Callable[[jax.Array, jax.Array], tuple[jax.Array, ...]],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -292,40 +367,62 @@ try:
             dtype = self._DTYPE_MAP[self.precision]
             return tf.Variable(arr, dtype=dtype)
 
+        def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> tf.Tensor:
+            dtype = self._DTYPE_MAP[precision]
+            return tf.constant(arr, dtype=dtype)
+
         def convert_out(self, obj: tf.Tensor | tf.Variable) -> np.ndarray:
             if obj.dtype in (tf.bfloat16, tf.float16):
                 obj = tf.cast(obj, tf.float32)
             return obj.numpy()
 
         def kabsch(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.kabsch(P, Q)
+            return kabsch_tf.kabsch(P, Q, weights=weights)
 
         def kabsch_umeyama(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.kabsch_umeyama(P, Q)
+            return kabsch_tf.kabsch_umeyama(P, Q, weights=weights)
 
         def horn(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.horn(P, Q)
+            return kabsch_tf.horn(P, Q, weights=weights)
 
         def horn_with_scale(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tuple[tf.Tensor | tf.Variable, ...]:
-            return kabsch_tf.horn_with_scale(P, Q)
+            return kabsch_tf.horn_with_scale(P, Q, weights=weights)
 
         def kabsch_rmsd(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tf.Tensor | tf.Variable:
-            return kabsch_tf.kabsch_rmsd(P, Q)
+            return kabsch_tf.kabsch_rmsd(P, Q, weights=weights)
 
         def kabsch_umeyama_rmsd(
-            self, P: tf.Tensor | tf.Variable, Q: tf.Tensor | tf.Variable
+            self,
+            P: tf.Tensor | tf.Variable,
+            Q: tf.Tensor | tf.Variable,
+            weights: tf.Tensor | tf.Variable | None = None,
         ) -> tf.Tensor | tf.Variable:
-            return kabsch_tf.kabsch_umeyama_rmsd(P, Q)
+            return kabsch_tf.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: tf.Tensor | tf.Variable) -> bool:
             return tf.math.is_nan(tensor).numpy().any()
@@ -334,10 +431,7 @@ try:
             self,
             P: tf.Tensor | tf.Variable,
             Q: tf.Tensor | tf.Variable,
-            func: Callable[
-                [tf.Tensor | tf.Variable, tf.Tensor | tf.Variable],
-                tuple[tf.Tensor | tf.Variable, ...],
-            ],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
@@ -403,14 +497,25 @@ try:
             # MLX implementation hardcodes 3x3 determinant correction
             return dim == 3
 
+        def supported_dims(self) -> list[int]:
+            return [3]
+
         @property
         def supports_nan_input(self) -> bool:
-            # MLX linalg.svd fatally aborts the process on NaN inputs
-            return False
+            # NaN inputs are caught before reaching linalg.svd/eigh
+            return True
 
         def convert_in(self, arr: np.ndarray) -> mx.array:
             self._set_device()
             dtype = self._DTYPE_MAP[self.precision]
+            return mx.array(arr, dtype=dtype)
+
+        def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> mx.array:
+            if precision == "float64":
+                mx.set_default_device(mx.cpu)
+            else:
+                mx.set_default_device(mx.gpu)
+            dtype = self._DTYPE_MAP[precision]
             return mx.array(arr, dtype=dtype)
 
         def convert_out(self, obj: mx.array) -> np.ndarray:
@@ -423,43 +528,47 @@ try:
                 ret = ret.astype(np.float32)
             return ret
 
-        def kabsch(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
-            return kabsch_mlx.kabsch(P, Q)
+        def kabsch(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.kabsch(P, Q, weights=weights)
 
-        def kabsch_umeyama(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
-            return kabsch_mlx.kabsch_umeyama(P, Q)
+        def kabsch_umeyama(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.kabsch_umeyama(P, Q, weights=weights)
 
-        def horn(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
-            return kabsch_mlx.horn(P, Q)
+        def horn(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.horn(P, Q, weights=weights)
 
-        def horn_with_scale(self, P: mx.array, Q: mx.array) -> tuple[mx.array, ...]:
-            self._set_device()
-            return kabsch_mlx.horn_with_scale(P, Q)
+        def horn_with_scale(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> tuple[mx.array, ...]:
+            return kabsch_mlx.horn_with_scale(P, Q, weights=weights)
 
-        def kabsch_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
-            self._set_device()
-            return kabsch_mlx.kabsch_rmsd(P, Q)
+        def kabsch_rmsd(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> mx.array:
+            return kabsch_mlx.kabsch_rmsd(P, Q, weights=weights)
 
-        def kabsch_umeyama_rmsd(self, P: mx.array, Q: mx.array) -> mx.array:
-            self._set_device()
-            return kabsch_mlx.kabsch_umeyama_rmsd(P, Q)
+        def kabsch_umeyama_rmsd(
+            self, P: mx.array, Q: mx.array, weights: mx.array | None = None
+        ) -> mx.array:
+            return kabsch_mlx.kabsch_umeyama_rmsd(P, Q, weights=weights)
 
         def is_nan(self, tensor: mx.array) -> bool:
-            self._set_device()
             return mx.any(mx.isnan(tensor)).item()
 
         def get_grad(
             self,
             P: mx.array,
             Q: mx.array,
-            func: Callable[[mx.array, mx.array], tuple[mx.array, ...]],
+            func: Callable,
             seed: int | None = 42,
             wrt: str = "P",
         ) -> np.ndarray:
-            self._set_device()
 
             def loss_fn(P_inner, Q_inner):
                 res = func(P_inner, Q_inner)
@@ -496,7 +605,70 @@ except ImportError:
     _MLX_AVAILABLE = False
 
 
+# NumPy is always available -- no try/except needed
+class NumPyAdapter(FrameworkAdapter[np.ndarray]):
+    _DTYPE_MAP: ClassVar[dict[str, np.dtype]] = {
+        "float16": np.float16,
+        "float32": np.float32,
+        "float64": np.float64,
+    }
+
+    @property
+    def supports_grad(self) -> bool:
+        return False
+
+    @property
+    def supports_nan_input(self) -> bool:
+        # NumPy's SVD raises LinAlgError on NaN inputs
+        return False
+
+    def convert_in(self, arr: np.ndarray) -> np.ndarray:
+        dtype = self._DTYPE_MAP[self.precision]
+        return arr.astype(dtype)
+
+    def convert_in_with_dtype(self, arr: np.ndarray, precision: str) -> np.ndarray:
+        dtype = self._DTYPE_MAP[precision]
+        return arr.astype(dtype)
+
+    def convert_out(self, obj: np.ndarray) -> np.ndarray:
+        if obj.dtype == np.float16:
+            obj = obj.astype(np.float32)
+        return obj
+
+    def kabsch(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.kabsch(P, Q, weights=weights)
+
+    def kabsch_umeyama(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.kabsch_umeyama(P, Q, weights=weights)
+
+    def horn(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.horn(P, Q, weights=weights)
+
+    def horn_with_scale(
+        self, P: np.ndarray, Q: np.ndarray, weights: np.ndarray | None = None
+    ) -> tuple[np.ndarray, ...]:
+        return kabsch_np.horn_with_scale(P, Q, weights=weights)
+
+    def is_nan(self, tensor: np.ndarray) -> bool:
+        return np.isnan(tensor).any()
+
+    @property
+    def mismatch_exception_type(
+        self,
+    ) -> type[Exception] | tuple[type[Exception], ...]:
+        return ValueError
+
+
 frameworks = [
+    pytest.param(NumPyAdapter("float16"), id="NumPy-Float16"),
+    pytest.param(NumPyAdapter("float32"), id="NumPy-Float32"),
+    pytest.param(NumPyAdapter("float64"), id="NumPy-Float64"),
     *(
         [
             pytest.param(PyTorchAdapter("bfloat16"), id="PyTorch-BFloat16"),

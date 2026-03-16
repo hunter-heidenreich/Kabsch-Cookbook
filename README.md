@@ -10,7 +10,21 @@ A collection of the Kabsch (SVD-based) and Horn (Quaternion-based) optimal struc
 
 ## Getting Started
 
-Copy the framework folder you need from `src/kabsch_horn/<framework>/` directly into your project. The code has no runtime dependencies beyond the framework itself, so nothing new gets added to your environment.
+### Install
+
+```bash
+pip install kabsch-horn-cookbook
+```
+
+Or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv add kabsch-horn-cookbook
+```
+
+### Copy-the-folder
+
+Alternatively, copy the framework folder you need from `src/kabsch_horn/<framework>/` directly into your project. The code has no runtime dependencies beyond the framework itself, so nothing new gets added to your environment.
 
 ```
 src/kabsch_horn/
@@ -25,7 +39,7 @@ Each folder contains two files: `kabsch_svd_nd.py` for SVD-based alignment and `
 
 ## Usage
 
-Each framework exports a consistent API. Batch processing (`[Batch, Points, D]`) is supported for all functions.
+Each framework exports a consistent API. Batch processing (`[..., N, D]` with arbitrary leading dims) is supported for all functions.
 
 ```python
 import torch
@@ -59,6 +73,10 @@ R, t, c, rmsd = kh.horn_with_scale(P_3d, Q_3d)
 # Single-call RMSD loss (autodiff frameworks only; gradients remain stable)
 loss = kh.kabsch_rmsd(P_nd, Q_nd)
 loss.mean().backward()
+
+# Per-point weights (e.g., confidence scores, B-factors)
+weights = torch.rand(10, 100)  # shape: [Batch, Points]
+R, t, rmsd = kh.kabsch(P_nd, Q_nd, weights=weights)
 ```
 
 ## Framework Support
@@ -109,7 +127,7 @@ JAX float64 requires `JAX_ENABLE_X64=True` to be set before importing JAX, other
 Traditionally used for 3D coordinates, this SVD implementation supports N-dimensional alignments. It scales to higher dimensions for tasks like mapping internal representations between models.
 
 ### Horn's Method (3D Quaternions)
-Horn's method applies strictly to 3D space. It uses a closed-form quaternion eigendecomposition to compute alignment and avoids the reflection trap often encountered in SVD approaches. This makes it a reliable choice for 3D point cloud tasks, such as molecular conformers or rigid-body physics.
+Horn's method applies strictly to 3D space. It uses a closed-form quaternion eigendecomposition to compute alignment. The quaternion formulation inherently produces proper rotations ($\det(R) = +1$) without a separate determinant correction step. This makes it a reliable choice for 3D point cloud tasks, such as molecular conformers or rigid-body physics.
 
 ## Stabilizing Gradients
 
@@ -239,6 +257,11 @@ The test suite is organized around mathematical claims rather than code coverage
 | [`tests/test_catastrophic_cancellation.py`](tests/test_catastrophic_cancellation.py) | Numerical stability at extreme coordinate magnitudes (1e-6 to 1e6) |
 | [`tests/test_error_handling.py`](tests/test_error_handling.py) | Correct exceptions for mismatched shapes, wrong dimensions, and invalid inputs |
 | [`tests/test_rmsd_wrappers.py`](tests/test_rmsd_wrappers.py) | `kabsch_rmsd` and `kabsch_umeyama_rmsd` match full-call RMSD output; N=1 single-point edge cases |
+| [`tests/test_reference_validation.py`](tests/test_reference_validation.py) | Cross-framework validation against NumPy reference outputs over multiple seeds |
+| [`tests/test_mixed_dtype.py`](tests/test_mixed_dtype.py) | Correct behavior when P and Q have different dtypes |
+| [`tests/test_mlx_float64_warning.py`](tests/test_mlx_float64_warning.py) | MLX emits a warning when float64 silently falls back to CPU |
+| [`tests/test_tf_dynamic_validation.py`](tests/test_tf_dynamic_validation.py) | TensorFlow runtime shape validation for dynamic shapes |
+| [`tests/test_weighted.py`](tests/test_weighted.py) | Per-point weighted alignment: uniform equivalence, outlier downweighting, gradient stability, error handling, and batching |
 
 The suite runs across 4 frameworks x 4 precisions (float16, bfloat16, float32, float64), with MLX restricted to 3D. Hypothesis property tests use configurable example counts; CI runs the defaults.
 

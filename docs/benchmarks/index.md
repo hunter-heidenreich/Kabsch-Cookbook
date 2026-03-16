@@ -1,6 +1,7 @@
 # Benchmarks
 
-Performance comparisons across frameworks, dimensions, and batch sizes. Coming soon.
+!!! note "Under construction"
+    Benchmarks are planned for a future release.
 
 **Planned comparisons:**
 

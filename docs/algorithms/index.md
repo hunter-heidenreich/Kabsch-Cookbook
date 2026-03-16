@@ -8,11 +8,13 @@ Given two point clouds \(P\) and \(Q\) with \(N\) points in \(D\) dimensions, th
 \text{RMSD} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \| c \cdot R p_i + t - q_i \|^2}
 \]
 
+All functions accept an optional per-point weight vector \(w \in \mathbb{R}^N\) (\(w_i \geq 0\), \(\sum w_i > 0\)). When weights are provided, centroids become weighted means and the RMSD uses the weighted sum of squared residuals. Uniform weights recover the standard unweighted formulation.
+
 This library provides two algorithms for solving this problem.
 
 ### Kabsch algorithm (N-dimensional SVD)
 
-The Kabsch algorithm works in any number of dimensions. It centers both clouds, computes the cross-covariance matrix \(H = (P - \bar{P})^\top (Q - \bar{Q})\), and takes the SVD:
+The Kabsch algorithm works in any number of dimensions. It centers both clouds (using weighted means when weights are provided), computes the cross-covariance matrix \(H = (P - \bar{P})^\top (Q - \bar{Q})\), and takes the SVD:
 
 \[
 H = U \Sigma V^\top
@@ -24,7 +26,7 @@ The Umeyama extension adds a global scale factor \(c\) computed from the ratio o
 
 ### Horn's method (3D quaternions)
 
-Horn's method applies strictly to 3D. It constructs a 4x4 symmetric matrix from the cross-covariance and finds the eigenvector corresponding to the largest eigenvalue. This eigenvector is a unit quaternion representing the optimal rotation. The closed-form quaternion approach avoids the reflection trap that SVD methods must handle with a determinant sign correction.
+Horn's method applies strictly to 3D. It constructs a 4x4 symmetric matrix from the cross-covariance and finds the eigenvector corresponding to the largest eigenvalue. This eigenvector is a unit quaternion representing the optimal rotation. The quaternion formulation inherently produces proper rotations (\(\det(R) = +1\)) without a separate determinant correction step.
 
 ## Stabilizing gradients
 
@@ -32,7 +34,7 @@ Point cloud alignments during neural network training often encounter degenerate
 
 ### SafeSVD and SafeEigh
 
-The autograd wrappers for PyTorch, JAX, TensorFlow, and MLX override the standard backward pass. During backpropagation, they mask near-zero differences between singular values (or eigenvalues) with \(\varepsilon = \text{finfo}(\text{dtype}).\text{eps}\):
+The autograd wrappers for PyTorch, JAX, TensorFlow, and MLX override the standard backward pass. During backpropagation, they zero out gradient terms where the difference between singular values (or eigenvalues) falls below \(\varepsilon = \text{finfo}(\text{dtype}).\text{eps}\):
 
 \[
 \frac{1}{\sigma_i - \sigma_j} \rightarrow \begin{cases} \frac{1}{\sigma_i - \sigma_j} & \text{if } |\sigma_i - \sigma_j| > \varepsilon \\ 0 & \text{otherwise} \end{cases}

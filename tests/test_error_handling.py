@@ -3,10 +3,11 @@ import math
 import numpy as np
 import pytest
 from adapters import FrameworkAdapter, frameworks
+from conftest import ALGORITHMS, ALGORITHMS_3D_ONLY
 
 
 class TestErrorHandling:
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_point_counts_differ(
         self,
@@ -29,7 +30,7 @@ class TestErrorHandling:
         with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama", "horn", "horn_with_scale"])
+    @pytest.mark.parametrize("algo", ALGORITHMS)
     @pytest.mark.parametrize("adapter", frameworks)
     def test_raises_error_when_dims_differ(
         self,
@@ -51,7 +52,9 @@ class TestErrorHandling:
         with pytest.raises(adapter.mismatch_exception_type, match=r"same shape"):
             func(P, Q)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize(
+        "algo", [a for a in ALGORITHMS if a not in ALGORITHMS_3D_ONLY]
+    )
     @pytest.mark.parametrize("adapter", frameworks)
     def test_handles_underdetermined_systems_gracefully(
         self,
@@ -73,7 +76,7 @@ class TestErrorHandling:
 
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
 
@@ -84,7 +87,9 @@ class TestErrorHandling:
         # An underdetermined system can always be fit perfectly.
         assert rmsd == pytest.approx(0.0, abs=adapter.atol)
 
-    @pytest.mark.parametrize("algo", ["kabsch", "umeyama"])
+    @pytest.mark.parametrize(
+        "algo", [a for a in ALGORITHMS if a not in ALGORITHMS_3D_ONLY]
+    )
     @pytest.mark.parametrize("adapter", frameworks)
     def test_propagates_nans_gracefully(
         self,
@@ -94,14 +99,12 @@ class TestErrorHandling:
         """
         Contract: NaN inputs must propagate to NaN outputs without raising exceptions.
 
-        PyTorch, JAX, and TensorFlow all propagate NaN through SVD. A framework
-        that raises on NaN input would be a real test failure here.
-        MLX is excluded because its linalg.svd fatally aborts the process on NaN.
+        PyTorch, JAX, TensorFlow, and MLX all propagate NaN through SVD/eigh.
+        NumPy raises LinAlgError on NaN and is excluded via supports_nan_input.
         """
         if not adapter.supports_nan_input:
             pytest.skip(
-                "MLX linalg.svd currently throws a fatal hardware Abort on NaNs "
-                "which aborts pytest."
+                f"{adapter.name} does not support NaN inputs (raises or aborts)."
             )
 
         dim = 3
@@ -116,7 +119,7 @@ class TestErrorHandling:
         P = adapter.convert_in(P_np)
         Q = adapter.convert_in(Q_np)
 
-        func = adapter.kabsch_umeyama if algo == "umeyama" else adapter.kabsch
+        func = adapter.get_transform_func(algo)
 
         res = func(P, Q)
 
@@ -127,6 +130,79 @@ class TestErrorHandling:
                 )
             else:
                 assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
+
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_horn_propagates_nans_gracefully(
+        self,
+        adapter: FrameworkAdapter,
+        algo: str,
+    ) -> None:
+        """Horn algorithms should propagate NaN without crashing where supported.
+
+        PyTorch and TensorFlow eigh raises on NaN-containing matrices, so only
+        JAX and MLX (which have NaN guards) are expected to pass.
+        """
+        if not adapter.supports_nan_input:
+            pytest.skip(
+                f"{adapter.name} does not support NaN inputs (raises or aborts)."
+            )
+
+        rng = np.random.default_rng(42)
+        P_np = rng.random((5, 3))
+        Q_np = rng.random((5, 3))
+        P_np[0, 0] = np.nan
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        try:
+            res = func(P, Q)
+        except Exception:
+            # Some frameworks (PyTorch, TensorFlow) raise on NaN eigh input
+            pytest.skip(f"{adapter.name} eigh raises on NaN input")
+
+        for tensor in res:
+            if isinstance(tensor, float):
+                assert math.isnan(tensor) or adapter.is_nan(tensor), (
+                    "Expected NaN to propagate"
+                )
+            else:
+                assert adapter.is_nan(tensor), "Expected NaN to propagate to output"
+
+    @pytest.mark.parametrize("algo", list(ALGORITHMS_3D_ONLY))
+    @pytest.mark.parametrize(
+        "dim", [pytest.param(2, id="2D"), pytest.param(4, id="4D")]
+    )
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_horn_raises_error_for_non_3d_input(self, adapter, algo, dim):
+        """Horn algorithms must reject inputs where D != 3."""
+        rng = np.random.default_rng(42)
+        P = adapter.convert_in(rng.standard_normal((5, dim)).astype(np.float64))
+        Q = adapter.convert_in(rng.standard_normal((5, dim)).astype(np.float64))
+        func = adapter.get_transform_func(algo)
+        with pytest.raises(ValueError, match="3D"):
+            func(P, Q)
+
+
+class TestRejects1DInput:
+    """1D array inputs must raise ValueError, not IndexError."""
+
+    @pytest.mark.parametrize("algo", ALGORITHMS)
+    @pytest.mark.parametrize("adapter", frameworks)
+    def test_1d_input_raises_value_error(
+        self, adapter: FrameworkAdapter, algo: str
+    ) -> None:
+        P_np = np.array([1.0, 2.0, 3.0])
+        Q_np = np.array([4.0, 5.0, 6.0])
+
+        P = adapter.convert_in(P_np)
+        Q = adapter.convert_in(Q_np)
+        func = adapter.get_transform_func(algo)
+
+        with pytest.raises(ValueError, match=r"at least 2D"):
+            func(P, Q)
 
 
 class TestNumpySinglePointRejection:
@@ -235,3 +311,43 @@ class TestNumpyFloat32DtypePromotion:
 
         for arr in result:
             assert arr.dtype == np.float32, f"Expected float32 output, got {arr.dtype}"
+
+
+class TestMLXDeviceRestoration:
+    """Verify _float64_device_guard restores the default device."""
+
+    @pytest.mark.parametrize(
+        "algo", ["kabsch", "kabsch_umeyama", "horn", "horn_with_scale"]
+    )
+    def test_device_restored_after_float64_call(self, algo: str) -> None:
+        try:
+            import mlx.core as mx
+
+            from kabsch_horn import mlx as kabsch_mlx
+        except ImportError:
+            pytest.skip("MLX not available")
+
+        # Set a known device before the call
+        mx.set_default_device(mx.gpu)
+        original = mx.default_device()
+
+        rng = np.random.default_rng(0)
+        P = mx.array(rng.random((5, 3)), dtype=mx.float64)
+        Q = mx.array(rng.random((5, 3)), dtype=mx.float64)
+
+        import warnings
+
+        func_map = {
+            "kabsch": kabsch_mlx.kabsch,
+            "kabsch_umeyama": kabsch_mlx.kabsch_umeyama,
+            "horn": kabsch_mlx.horn,
+            "horn_with_scale": kabsch_mlx.horn_with_scale,
+        }
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            func_map[algo](P, Q)
+
+        assert mx.default_device() == original, (
+            f"Expected device {original} after float64 call, got {mx.default_device()}"
+        )

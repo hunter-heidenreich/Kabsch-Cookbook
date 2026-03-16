@@ -46,9 +46,20 @@ class SafeSVD(torch.autograd.Function):
         U, S, Vh = ctx.saved_tensors
         eps = torch.finfo(S.dtype).eps
 
-        # Backward pass of SVD for real matrices:
-        # A = U S V^T
-        # dA = U (diag(dS) - J S - S K) V^T
+        # SVD backward-pass sign convention (PyTorch)
+        # ----------------------------------------
+        # torch.linalg.svd returns (U, S, Vh) with A = U @ diag(S) @ Vh.
+        #
+        # The F matrix is F_ij = 1 / (S_i^2 - S_j^2), computed as:
+        #   D = S_sq.unsqueeze(-1) - S_sq.unsqueeze(-2)   (row - col)
+        #
+        # With this ordering, the gradient formula is:
+        #   dA = U @ (diag(dS) - J @ S - S @ K) @ Vh
+        #
+        # TensorFlow and MLX use the transposed axis ordering for D
+        # (col - row), which negates F and flips the formula to +J, +K.
+        # Both forms are equivalent -- see Townsend (2016),
+        # "Differentiating the Singular Value Decomposition".
 
         # Replace None gradients with zeros
         grad_U = torch.zeros_like(U) if grad_U is None else grad_U
@@ -117,7 +128,7 @@ def safe_svd(
 
 
 def kabsch(
-    P: torch.Tensor, Q: torch.Tensor
+    P: torch.Tensor, Q: torch.Tensor, weights: torch.Tensor | None = None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes the optimal rotation and translation to align P to Q using Safe SVD.
@@ -125,6 +136,8 @@ def kabsch(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, rmsd): Rotation [..., D, D], translation [..., D], RMSD [...].
@@ -140,18 +153,44 @@ def kabsch(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if torch.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not torch.all(torch.sum(weights, dim=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
-    if orig_dtype in (torch.float16, torch.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = torch.float64 if torch.float64 in (P.dtype, Q.dtype) else torch.float32
+        P = P.to(target)
+        Q = Q.to(target)
+        orig_dtype = target
+    elif orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
         Q = Q.to(torch.float32)
+
+    if weights is not None:
+        weights = weights.to(P.dtype)
 
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
+        if weights is not None:
+            weights = weights.unsqueeze(0)
 
     orig_shape = P.shape
     D = orig_shape[-1]
@@ -160,17 +199,30 @@ def kabsch(
 
     P = P.view(-1, _N, D)
     Q = Q.view(-1, _N, D)
+    if weights is not None:
+        weights = weights.view(-1, _N)
 
     # Compute centroids
-    centroid_P = torch.mean(P, dim=1, keepdim=True)  # Bx1x3
-    centroid_Q = torch.mean(Q, dim=1, keepdim=True)  # Bx1x3
+    if weights is not None:
+        w = weights.unsqueeze(-1)  # BxNx1
+        w_sum = torch.sum(weights, dim=-1)  # B
+        centroid_P = torch.sum(w * P, dim=1, keepdim=True) / w_sum.view(
+            -1, 1, 1
+        )  # Bx1xD
+        centroid_Q = torch.sum(w * Q, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+    else:
+        centroid_P = torch.mean(P, dim=1, keepdim=True)  # Bx1x3
+        centroid_Q = torch.mean(Q, dim=1, keepdim=True)  # Bx1x3
 
     # Center points
     p = P - centroid_P  # BxNx3
     q = Q - centroid_Q  # BxNx3
 
     # Cross-covariance matrix
-    H = torch.matmul(p.transpose(1, 2), q)  # Bx3x3
+    if weights is not None:
+        H = torch.matmul((w * p).transpose(1, 2), q)  # BxDxD
+    else:
+        H = torch.matmul(p.transpose(1, 2), q)  # Bx3x3
 
     # Safe SVD
     U, _S, V = safe_svd(H)  # Bx3x3, Bx3, Bx3x3
@@ -183,8 +235,13 @@ def kabsch(
     # Sign safely mapping 0 determinant to 1.0 instead of 0.0
     d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
-    B_diag = torch.ones(*d_sign.shape, D, dtype=P.dtype, device=P.device)
-    B_diag[..., -1] = d_sign
+    B_diag = torch.cat(
+        [
+            torch.ones(*d_sign.shape, D - 1, dtype=P.dtype, device=P.device),
+            d_sign.unsqueeze(-1),
+        ],
+        dim=-1,
+    )
 
     # 3. Optimal Rotation: R = V * B_diag * U^T
     R = torch.matmul(V * B_diag.unsqueeze(1), U.transpose(1, 2))  # Bx3x3
@@ -192,7 +249,11 @@ def kabsch(
     # RMSD (mse + eps for smooth sqrt gradient near zero)
     aligned = torch.matmul(p, R.transpose(1, 2))
     _eps = torch.finfo(P.dtype).eps
-    mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1]
+    if weights is not None:
+        residual_sq = torch.sum(torch.square(aligned - q), dim=-1)  # BxN
+        mse = torch.sum(weights * residual_sq, dim=-1) / w_sum  # B
+    else:
+        mse = torch.sum(torch.square(aligned - q), dim=(1, 2)) / P.shape[1]
     rmsd = torch.sqrt(mse + _eps)
 
     # Fast Translation
@@ -221,7 +282,7 @@ def kabsch(
 
 
 def kabsch_umeyama(
-    P: torch.Tensor, Q: torch.Tensor
+    P: torch.Tensor, Q: torch.Tensor, weights: torch.Tensor | None = None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Computes optimal rotation, translation, and scale (Q ~ c * R @ P + t).
@@ -229,6 +290,8 @@ def kabsch_umeyama(
     Args:
         P: Source points, shape [..., N, D].
         Q: Target points, shape [..., N, D].
+        weights: Per-point weights, shape [..., N]. Non-negative, must sum to > 0.
+            When None, all points are weighted equally.
 
     Returns:
         (R, t, c, rmsd): Rotation [..., D, D], translation [..., D], scale [...],
@@ -249,18 +312,44 @@ def kabsch_umeyama(
         raise ValueError(
             f"P and Q must have the same shape, got {P.shape} vs {Q.shape}"
         )
+    if P.ndim < 2:
+        raise ValueError(
+            f"Input must be at least 2D with shape [..., N, D], got shape {P.shape}"
+        )
     if P.shape[-2] < 2:
         raise ValueError("At least 2 points are required for alignment")
 
+    if weights is not None:
+        if weights.shape != P.shape[:-1]:
+            raise ValueError(
+                f"weights shape {weights.shape} does not match "
+                f"P.shape[:-1] {P.shape[:-1]}"
+            )
+        if torch.any(weights < 0):
+            raise ValueError("weights must be non-negative")
+        if not torch.all(torch.sum(weights, dim=-1) > 0):
+            raise ValueError("weights must sum to a positive value")
+
     orig_dtype = P.dtype
-    if orig_dtype in (torch.float16, torch.bfloat16):
+    if P.dtype != Q.dtype:
+        # Mixed dtypes: promote to higher precision
+        target = torch.float64 if torch.float64 in (P.dtype, Q.dtype) else torch.float32
+        P = P.to(target)
+        Q = Q.to(target)
+        orig_dtype = target
+    elif orig_dtype in (torch.float16, torch.bfloat16):
         P = P.to(torch.float32)
         Q = Q.to(torch.float32)
+
+    if weights is not None:
+        weights = weights.to(P.dtype)
 
     is_single = P.ndim == 2
     if is_single:
         P = P.unsqueeze(0)
         Q = Q.unsqueeze(0)
+        if weights is not None:
+            weights = weights.unsqueeze(0)
 
     orig_shape = P.shape
     D = orig_shape[-1]
@@ -269,20 +358,30 @@ def kabsch_umeyama(
 
     P = P.view(-1, N, D)
     Q = Q.view(-1, N, D)
+    if weights is not None:
+        weights = weights.view(-1, N)
 
     # Compute centroids
-    centroid_P = torch.mean(P, dim=1, keepdim=True)
-    centroid_Q = torch.mean(Q, dim=1, keepdim=True)
+    if weights is not None:
+        w = weights.unsqueeze(-1)  # BxNx1
+        w_sum = torch.sum(weights, dim=-1)  # B
+        centroid_P = torch.sum(w * P, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+        centroid_Q = torch.sum(w * Q, dim=1, keepdim=True) / w_sum.view(-1, 1, 1)
+    else:
+        centroid_P = torch.mean(P, dim=1, keepdim=True)
+        centroid_Q = torch.mean(Q, dim=1, keepdim=True)
 
     # Center points
     p = P - centroid_P
     q = Q - centroid_Q
 
-    # Cross-covariance matrix (divided by N for Umeyama scale estimation)
-    H = torch.matmul(p.transpose(1, 2), q) / N
-
-    # Variances of P
-    var_P = torch.sum(torch.square(p), dim=(1, 2)) / N
+    # Cross-covariance matrix (divided by N or w_sum for Umeyama scale estimation)
+    if weights is not None:
+        H = torch.matmul((w * p).transpose(1, 2), q) / w_sum.view(-1, 1, 1)
+        var_P = torch.sum(weights * torch.sum(torch.square(p), dim=-1), dim=-1) / w_sum
+    else:
+        H = torch.matmul(p.transpose(1, 2), q) / N
+        var_P = torch.sum(torch.square(p), dim=(1, 2)) / N
 
     # Safe SVD
     U, S, V = safe_svd(H)
@@ -291,8 +390,13 @@ def kabsch_umeyama(
     d = torch.linalg.det(torch.matmul(V, U.transpose(1, 2)))
     d_sign = torch.sign(d + torch.finfo(d.dtype).eps)
 
-    S_corr = torch.ones(*d_sign.shape, D, dtype=P.dtype, device=P.device)
-    S_corr[..., -1] = d_sign
+    S_corr = torch.cat(
+        [
+            torch.ones(*d_sign.shape, D - 1, dtype=P.dtype, device=P.device),
+            d_sign.unsqueeze(-1),
+        ],
+        dim=-1,
+    )
 
     # Scale
     _eps = torch.finfo(P.dtype).eps
@@ -310,7 +414,11 @@ def kabsch_umeyama(
     aligned_P = c.unsqueeze(-1).unsqueeze(-1) * torch.matmul(
         P, R.transpose(1, 2)
     ) + t.unsqueeze(1)
-    mse = torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N
+    if weights is not None:
+        residual_sq = torch.sum(torch.square(aligned_P - Q), dim=-1)  # BxN
+        mse = torch.sum(weights * residual_sq, dim=-1) / w_sum  # B
+    else:
+        mse = torch.sum(torch.square(aligned_P - Q), dim=(1, 2)) / N
     rmsd = torch.sqrt(mse + _eps)
 
     if is_single:
@@ -318,6 +426,7 @@ def kabsch_umeyama(
         if orig_dtype in (torch.float16, torch.bfloat16):
             R = R.to(orig_dtype)
             t = t.to(orig_dtype)
+            c = torch.clamp(c, max=torch.finfo(orig_dtype).max)
             c = c.to(orig_dtype)
             rmsd = rmsd.to(orig_dtype)
         return R, t, c, rmsd
@@ -330,19 +439,24 @@ def kabsch_umeyama(
     if orig_dtype in (torch.float16, torch.bfloat16):
         R = R.to(orig_dtype)
         t = t.to(orig_dtype)
+        c = torch.clamp(c, max=torch.finfo(orig_dtype).max)
         c = c.to(orig_dtype)
         rmsd = rmsd.to(orig_dtype)
 
     return R, t, c, rmsd
 
 
-def kabsch_rmsd(P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+def kabsch_rmsd(
+    P: torch.Tensor, Q: torch.Tensor, weights: torch.Tensor | None = None
+) -> torch.Tensor:
     """Computes RMSD after Kabsch alignment. Gradient-safe training loss."""
-    _R, _t, rmsd = kabsch(P, Q)
+    _R, _t, rmsd = kabsch(P, Q, weights=weights)
     return rmsd
 
 
-def kabsch_umeyama_rmsd(P: torch.Tensor, Q: torch.Tensor) -> torch.Tensor:
+def kabsch_umeyama_rmsd(
+    P: torch.Tensor, Q: torch.Tensor, weights: torch.Tensor | None = None
+) -> torch.Tensor:
     """Computes RMSD after Kabsch-Umeyama alignment. Gradient-safe training loss."""
-    _R, _t, _c, rmsd = kabsch_umeyama(P, Q)
+    _R, _t, _c, rmsd = kabsch_umeyama(P, Q, weights=weights)
     return rmsd
