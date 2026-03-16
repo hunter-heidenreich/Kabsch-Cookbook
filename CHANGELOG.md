@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.0](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.3.0...v0.4.0) (2026-03-16)
+
+
+### Features
+
+* add optional per-point weights to all alignment functions ([#173](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/173)) ([bdf1ed7](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/bdf1ed735b149f65e6dbd2906515a9ef0a014eb0))
+
+
+### Bug Fixes
+
+* clamp scale factor before half-precision downcast ([#170](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/170)) ([08d7120](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/08d7120429a53611c546535438cb58444e99ee50))
+* MLX SVD backward, global device leak, and NaN abort ([#168](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/168)) ([d050b9a](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/d050b9a09121ffed49796f8f2d4b650b538ca15e))
+* reject 1D inputs with ValueError instead of IndexError ([#171](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/171)) ([7b53608](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/7b536086ecbdd92458d7b3d20343ccae2b34bc8e))
+* remove CLAUDE.md from tracking and add to .gitignore ([#177](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/177)) ([8503f4c](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/8503f4c69d176dd984d66c2a2ca36fa8a761b958))
+* remove local-only files from tracking and add to .gitignore ([#176](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/176)) ([db5ad2f](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/db5ad2fa3f4e54731068810346cfeabb56c731ca))
+* replace in-place mutation of B_diag and S_corr in PyTorch backend ([cba6362](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/cba63622aa6b2bf8d9c32b8c0764cf67f9f23df2)), closes [#151](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/151)
+
+
+### Documentation
+
+* annotate backward-pass sign conventions per framework ([#157](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/157)) ([#172](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/172)) ([0dafc71](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/0dafc719dbebbc91ae4749b10c7113eafb3bf70a))
+* document per-point weights across all markdown files ([#175](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/175)) ([6633915](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/66339150578735a470ad4af5a4c214d610a9933a))
+* fix consistency, missing content, and clarity across markdown files ([#174](https://github.com/hunter-heidenreich/Kabsch-Cookbook/issues/174)) ([d151c64](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/d151c64c83bface535d44618dec141734058397a))
+
 ## [0.3.0](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.2.0...v0.3.0) (2026-03-14)
 
 
