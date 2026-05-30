@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.1](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.4.0...v0.4.1) (2026-05-30)
+
+
+### Documentation
+
+* correct install instructions to git-based (not on PyPI) ([42b9eba](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/42b9ebad3c7faf1d1f37cfa0f701e15223dbd4bc))
+* cross-link README to the companion writeups and paper notes ([4c67bd6](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/4c67bd6ecb4edda42c98a57e2aec4339bfe1c52e))
+
 ## [0.4.0](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.3.0...v0.4.0) (2026-03-16)
 
 
