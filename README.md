@@ -273,9 +273,18 @@ Run the test suite with:
 uv run pytest tests/
 ```
 
+## Further Reading
+
+* **[The Kabsch Algorithm](https://hunterheidenreich.com/posts/kabsch-algorithm/)** -- a step-by-step derivation of the math, with from-scratch differentiable implementations in NumPy, PyTorch, TensorFlow, and JAX.
+* **[Project overview](https://hunterheidenreich.com/projects/kabsch-horn-cookbook/)** -- background, design notes, and worked examples for this library.
+
 ## References
 
-* **[Kabsch 1976]** Kabsch, W. (1976). "A solution for the best rotation to relate two sets of vectors."
-* **[Kabsch 1978]** Kabsch, W. (1978). "A discussion of the solution for the best rotation to relate two sets of vectors."
-* **[Horn 1987]** Horn, B.K.P. (1987). "Closed-form solution of absolute orientation using unit quaternions."
-* **[Umeyama 1991]** Umeyama, S. (1991). "Least-squares estimation of transformation parameters between two point patterns."
+Each foundational paper has a detailed walkthrough in the [companion notes](https://hunterheidenreich.com/notes/biology/computational-biology/).
+
+* **[Kabsch 1976]** Kabsch, W. (1976). "A solution for the best rotation to relate two sets of vectors." *Acta Crystallographica A*. [[notes](https://hunterheidenreich.com/notes/biology/computational-biology/kabsch-algorithm/)]
+* **[Kabsch 1978]** Kabsch, W. (1978). "A discussion of the solution for the best rotation to relate two sets of vectors." *Acta Crystallographica A*.
+* **[Arun 1987]** Arun, K.S., Huang, T.S., & Blostein, S.D. (1987). "Least-squares fitting of two 3-D point sets." *IEEE TPAMI*. [[notes](https://hunterheidenreich.com/notes/biology/computational-biology/arun-svd-point-fitting/)]
+* **[Horn 1987]** Horn, B.K.P. (1987). "Closed-form solution of absolute orientation using unit quaternions." *JOSA A*. [[notes](https://hunterheidenreich.com/notes/biology/computational-biology/horn-absolute-orientation/)]
+* **[Horn 1988]** Horn, B.K.P., Hilden, H.M., & Negahdaripour, S. (1988). "Closed-form solution of absolute orientation using orthonormal matrices." *JOSA A*. [[notes](https://hunterheidenreich.com/notes/biology/computational-biology/horn-orthonormal-matrices/)]
+* **[Umeyama 1991]** Umeyama, S. (1991). "Least-squares estimation of transformation parameters between two point patterns." *IEEE TPAMI*. [[notes](https://hunterheidenreich.com/notes/biology/computational-biology/umeyama-similarity-transformation/)]
