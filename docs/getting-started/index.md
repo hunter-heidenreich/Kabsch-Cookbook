@@ -7,13 +7,13 @@ This is a reference cookbook, meant to be read and copied (see [Copy-the-folder]
 ### pip
 
 ```bash
-pip install "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.0"
+pip install "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.1"
 ```
 
 ### uv
 
 ```bash
-uv add "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.0"
+uv add "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.1"
 ```
 
 ### Copy-the-folder
