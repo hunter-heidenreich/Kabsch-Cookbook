@@ -15,13 +15,13 @@ A collection of the Kabsch (SVD-based) and Horn (Quaternion-based) optimal struc
 This is a reference cookbook, meant to be read and copied (see [Copy-the-folder](#copy-the-folder) below). If you would rather depend on it directly, install a pinned version from GitHub:
 
 ```bash
-pip install "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.0"
+pip install "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.1"
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv add "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.0"
+uv add "git+https://github.com/hunter-heidenreich/Kabsch-Cookbook.git@v0.4.1"
 ```
 
 ### Copy-the-folder
