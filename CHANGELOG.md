@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.4.2](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.4.1...v0.4.2) (2026-06-03)
+
+
+### Documentation
+
+* bump pinned install to v0.4.1 ([b975cb4](https://github.com/hunter-heidenreich/Kabsch-Cookbook/commit/b975cb4334617d6f0330c1e622dfaed2ad9d8ad1))
+
 ## [0.4.1](https://github.com/hunter-heidenreich/Kabsch-Cookbook/compare/v0.4.0...v0.4.1) (2026-05-30)
 
 
